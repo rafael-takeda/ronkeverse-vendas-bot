@@ -15,6 +15,7 @@
  */
 import { usandoKv } from './lib/estado.js'
 import { blocoAtual } from './lib/ronin.js'
+import { listaDeWebhooks } from './lib/discord.js'
 
 let falhas = 0
 const ok = (m, extra = '') => console.log('  ok      ' + m + (extra ? '  ' + extra : ''))
@@ -57,18 +58,23 @@ if (!url || !token) {
 console.log(`          (o bot vai usar: ${usandoKv ? 'REDIS' : 'ARQUIVO — errado em produção'})`)
 
 // ---------------------------------------------------------------- Discord
-const webhook = process.env.DISCORD_WEBHOOK
-if (!webhook) {
+// CADA destino é conferido, não só o primeiro. Com vários servidores, um
+// webhook revogado ficaria invisível se a checagem parasse no primeiro que
+// responde — e o sintoma seria "um dos canais parou de receber".
+const destinos = listaDeWebhooks(process.env.DISCORD_WEBHOOK)
+if (destinos.length === 0) {
   mal('DISCORD_WEBHOOK não configurado')
 } else {
-  try {
-    // GET no webhook devolve os dados dele SEM postar nada no canal.
-    const r = await fetch(webhook)
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    const w = await r.json()
-    ok('webhook do Discord válido', `canal ${w.channel_id}`)
-  } catch (e) {
-    mal('webhook do Discord não respondeu', e.message)
+  for (const [i, w] of destinos.entries()) {
+    try {
+      // GET no webhook devolve os dados dele SEM postar nada no canal.
+      const r = await fetch(w)
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const d = await r.json()
+      ok(`webhook ${i + 1}/${destinos.length} válido`, `${d.name} · canal ${d.channel_id}`)
+    } catch (e) {
+      mal(`webhook ${i + 1}/${destinos.length} não respondeu`, e.message)
+    }
   }
 }
 
