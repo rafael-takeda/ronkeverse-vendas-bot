@@ -1,0 +1,30 @@
+# Roda o bot pelo GitHub Actions, de graça, sem Vercel.
+#
+# POR QUE ESTE ARQUIVO EXISTE: o plano Hobby da Vercel so aceita cron DIARIO --
+# um "* * * * *" nem chega a publicar, ele falha no deploy. O Actions aceita ate
+# de 5 em 5 minutos sem custo, e pra esta colecao (que passou 13 h sem uma
+# transferencia) 5 minutos e de sobra.
+#
+# O agendamento do Actions atrasa quando a fila esta cheia. Nao ha problema: o
+# bot le a faixa de blocos desde o ultimo que processou, entao um atraso so
+# junta mais blocos na proxima passada.
+name: vendas do ronkeverse
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # botao pra rodar na hora, util pra testar
+
+jobs:
+  anunciar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node rodar.js
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
+          KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
