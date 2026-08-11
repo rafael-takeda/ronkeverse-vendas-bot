@@ -18,6 +18,8 @@ on:
 jobs:
   anunciar:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # so pro sinal de vida abaixo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,3 +36,25 @@ jobs:
           # venda de 5 em 5 minutos. Quem denunciou foi a linha "estado" do log.
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+
+      # ------------------------------------------------------------------
+      # SINAL DE VIDA -- sem isto o bot morre calado em 60 dias.
+      #
+      # O GitHub DESATIVA workflow agendado em repositorio publico depois de 60
+      # dias sem commit. E so commit conta: abrir issue, criar tag ou fechar PR
+      # nao resetam o relogio. O bot ficaria no ar, verde, sem nunca mais rodar
+      # -- e o sintoma seria "parou de anunciar", tres semanas depois de parar.
+      #
+      # Uma linha de texto por mes basta pra manter o relogio zerado. Roda so na
+      # virada do mes, entao sao 12 commits por ano.
+      - name: sinal de vida (1x por mes)
+        run: |
+          mes=$(date -u +%Y-%m)
+          if [ "$(cat .sinal 2>/dev/null)" != "$mes" ]; then
+            echo "$mes" > .sinal
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .sinal
+            git commit -m "sinal de vida $mes -- mantem o agendador ligado"
+            git push
+          fi
