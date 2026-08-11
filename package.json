@@ -1,0 +1,15 @@
+{
+  "name": "ronke-vendas-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Anuncia no Discord cada venda do Ronkeverse na Ronin.",
+  "scripts": {
+    "teste": "node teste.js",
+    "rodar": "node rodar.js",
+    "checar": "node --env-file=.env checar.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
