@@ -12,8 +12,19 @@ name: vendas do ronkeverse
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    # De 30 em 30 min. NAO adianta pedir mais: MEDIDO em 11/08/2026, com "*/5" o
+    # GitHub entregava UMA execucao por hora, com buracos de ate 91 minutos.
+    # Agendamento no Actions e melhor-esforco e frequencia alta e a primeira
+    # coisa que eles descartam. Quem garante a cobertura e o MINUTOS abaixo.
+    - cron: '*/30 * * * *'
   workflow_dispatch: # botao pra rodar na hora, util pra testar
+
+# Duas execucoes ao mesmo tempo varreriam a mesma faixa e poderiam anunciar em
+# dobro. A que chegar depois espera a anterior terminar -- e como cada uma dura
+# ~50 min, a fila vira justamente a cobertura continua que a gente quer.
+concurrency:
+  group: vendas-do-ronkeverse
+  cancel-in-progress: false
 
 jobs:
   anunciar:
@@ -25,8 +36,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      # FICA VIVA ~50 MIN, checando de minuto em minuto. E o conserto do atraso:
+      # em vez de depender de o GitHub disparar de 5 em 5 minutos (nao dispara),
+      # uma execucao so cobre a hora inteira. Venda as 12:10 era anunciada 12:40;
+      # com isso, sai em ate um minuto.
+      #
+      # O teto do job no Actions e 6 horas, entao 50 min tem folga de sobra, e
+      # minuto em repositorio publico e ilimitado.
       - run: node rodar.js
+        timeout-minutes: 55
         env:
+          MINUTOS: '50'
+          INTERVALO_S: '60'
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           # Os nomes do Upstash. O KV da Vercel chama o MESMO par de
           # KV_REST_API_*, e o codigo aceita os dois -- mas o segredo tem que
