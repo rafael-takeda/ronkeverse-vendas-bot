@@ -6,8 +6,8 @@
  * Existe pra ver o formato no canal antes de o bot entrar no ar. Nao mexe no
  * ponteiro de blocos: o bot nao vai pular nada por causa disto.
  */
-import { detalheDaVenda, metadados } from './lib/ronin.js'
-import { anuncia } from './lib/discord.js'
+import { detalheDaVenda, metadados, nomeDaColecao } from './lib/ronin.js'
+import { anunciaEmTodos } from './lib/discord.js'
 
 const webhook = process.env.DISCORD_WEBHOOK
 if (!webhook) { console.error('falta DISCORD_WEBHOOK'); process.exitCode = 1 }
@@ -20,8 +20,11 @@ else {
     bloco: 0,
   })
   const meta = await metadados(3369)
-  const foi = await anuncia(webhook, venda, meta)
-  console.log(foi ? `postado: #${venda.id} por ${venda.preco} RON (${venda.marketplace})`
-                  : 'NAO postou — ver o aviso acima')
-  process.exitCode = foi ? 0 : 1
+  // `anunciaEmTodos`, nao `anuncia`: a variavel pode ter VARIAS URLs, e mandar a
+  // string inteira pra uma so vira uma URL invalida (404). Foi o que aconteceu
+  // no dia em que o segundo servidor entrou.
+  const colecao = await nomeDaColecao()
+  const r = await anunciaEmTodos(webhook, venda, meta, colecao)
+  console.log(`postado em ${r.ok}/${r.total} destino(s): #${venda.id} por ${venda.preco} RON (${venda.marketplace})`)
+  process.exitCode = r.ok === r.total && r.total > 0 ? 0 : 1
 }
