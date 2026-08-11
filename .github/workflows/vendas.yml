@@ -26,5 +26,11 @@ jobs:
       - run: node rodar.js
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
-          KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
+          # Os nomes do Upstash. O KV da Vercel chama o MESMO par de
+          # KV_REST_API_*, e o codigo aceita os dois -- mas o segredo tem que
+          # chegar com o nome que existe aqui. Na primeira execucao eu passei
+          # KV_REST_API_* enquanto os segredos estavam gravados como UPSTASH_*:
+          # chegaram vazios, o bot caiu no modo ARQUIVO e teria repetido cada
+          # venda de 5 em 5 minutos. Quem denunciou foi a linha "estado" do log.
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
