@@ -12,11 +12,19 @@ name: vendas do ronkeverse
 
 on:
   schedule:
-    # De 30 em 30 min. NAO adianta pedir mais: MEDIDO em 11/08/2026, com "*/5" o
-    # GitHub entregava UMA execucao por hora, com buracos de ate 91 minutos.
-    # Agendamento no Actions e melhor-esforco e frequencia alta e a primeira
-    # coisa que eles descartam. Quem garante a cobertura e o MINUTOS abaixo.
-    - cron: '*/30 * * * *'
+    # De 15 em 15 min. Nao e pra rodar de 15 em 15: cada execucao dura ~50 min e
+    # a `concurrency` abaixo poe a seguinte na FILA. Pedir mais vezes serve pra
+    # garantir que sempre exista uma esperando quando a atual terminar.
+    #
+    # Com */30 as execucoes ficavam coladas mas nao emendadas: media de 3 a 20
+    # minutos de buraco entre uma e outra (medido em 11/08/2026), e venda que
+    # caisse no buraco esperava a proxima comecar. Foi o que fez a comunidade
+    # achar que o bot tinha parado num dia em que ele estava certo.
+    #
+    # O GitHub mantem no maximo UM run pendente por grupo de concorrencia -- os
+    # gatilhos extras substituem o pendente em vez de empilhar. Entao pedir mais
+    # nao cria fila infinita.
+    - cron: '*/15 * * * *'
   workflow_dispatch: # botao pra rodar na hora, util pra testar
 
 # Duas execucoes ao mesmo tempo varreriam a mesma faixa e poderiam anunciar em
