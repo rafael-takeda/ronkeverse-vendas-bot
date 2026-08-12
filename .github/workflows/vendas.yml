@@ -38,7 +38,8 @@ jobs:
   anunciar:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # so pro sinal de vida abaixo
+      contents: write # sinal de vida
+      actions: write  # disparar a proxima execucao (ver o fim do arquivo)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -87,3 +88,24 @@ jobs:
             git commit -m "sinal de vida $mes -- mantem o agendador ligado"
             git push
           fi
+
+      # ------------------------------------------------------------------
+      # A PROXIMA EXECUCAO E DISPARADA POR ESTA. Sem depender do cron.
+      #
+      # O cron do Actions e melhor-esforco de verdade: com "*/5" ele entregava
+      # uma por hora, e com "*/15" passou UMA HORA E MEIA sem entregar nada
+      # (11/08/2026, 00:31 -> 02:00). Nesse buraco duas vendas ficaram sem
+      # anuncio ate alguem reclamar.
+      #
+      # Manter o bot vivo nao pode depender de um agendador que as vezes nao
+      # agenda. Entao cada execucao termina chamando a proxima -- a corrente se
+      # puxa sozinha, e o cron vira so a rede de seguranca pra o caso de um elo
+      # arrebentar.
+      #
+      # `if: always()` porque a corrente NAO pode parar quando uma passada falha:
+      # falha e justamente quando mais importa ter a proxima.
+      - name: chama a proxima execucao
+        if: always() && github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run vendas.yml --repo ${{ github.repository }}
