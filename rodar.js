@@ -36,7 +36,22 @@ if (!seco && !webhook) {
   let voltas = 0
 
   do {
-    const r = await umCiclo({ webhook, seco })
+    /*
+     * UMA VOLTA RUIM NAO PODE ENCERRAR AS 50.
+     *
+     * Sem este try/catch, a primeira rejeicao dentro de `umCiclo` derruba o
+     * processo com exit 1 e leva junto os ~48 minutos restantes daquele run --
+     * a corrente so se refaz quando o Actions disparar de novo, e o agendamento
+     * dele ja foi medido entregando uma execucao por HORA. O ponteiro nao avanca
+     * numa volta que falhou, entao a volta seguinte pega o buraco inteiro.
+     */
+    let r
+    try {
+      r = await umCiclo({ webhook, seco })
+    } catch (e) {
+      console.warn(`[rodar] volta falhou: ${e.message}`)
+      r = { blocos: 0, transferencias: 0, vendas: 0, anunciadas: 0, estado: 'erro' }
+    }
     voltas++
     // Uma linha por volta, nao o JSON inteiro: 50 voltas de JSON afogam o log e
     // escondem justamente a volta em que algo aconteceu.

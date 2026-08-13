@@ -14,7 +14,7 @@
  *
  * NÃO POSTA e NÃO grava ponteiro: só lê a cadeia.
  */
-import { transferencias, detalheDaVenda } from './lib/ronin.js'
+import { deWei, transferencias, vendasDoGrupo } from './lib/ronin.js'
 
 let falhas = 0
 const conf = (cond, msg, extra = '') => {
@@ -46,10 +46,11 @@ for (const c of CASOS) {
     continue
   }
 
-  const v = await detalheDaVenda(alvo)
-  conf(v !== null, `#${c.id} reconhecida como venda`)
+  // Um grupo de um item só — que é o que estas três transações são.
+  const [v] = await vendasDoGrupo({ tx: alvo.tx, comprador: alvo.para, itens: [alvo] })
+  conf(v != null, `#${c.id} reconhecida como venda`)
   if (v) {
-    conf(v.preco === c.preco, `#${c.id} preço pelo caminho completo`, `${v.preco} RON`)
+    conf(deWei(v.precoWei) === c.preco, `#${c.id} preço pelo caminho completo`, `${deWei(v.precoWei)} RON`)
     conf(v.marketplace === c.onde, `#${c.id} marketplace`, String(v.marketplace))
   }
 }
