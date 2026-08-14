@@ -90,6 +90,14 @@ De 5 em 5 minutos é de sobra: esta coleção passou 13 horas sem uma única tra
 
 **Anuncia primeiro, avança o ponteiro depois.** Uma falha no meio faz a próxima passada tentar de novo. O risco oposto seria perder vendas em silêncio — e ninguém reclama do que não viu. A dedup por `(tx, tokenId)` estreita a repetição sem inverter a escolha: ela é reivindicada **depois** de um POST aceito e falha aberto, então nunca some com uma venda.
 
+**A fila de repostagem foi considerada e recusada, com número.** Se o Discord recusa um post, a venda some: o ponteiro avança no fim do ciclo e ninguém volta lá. A defesa óbvia é uma fila de pendentes — e ela foi medida antes de ser construída.
+
+Em 12/08/2026, com o código **anterior** à retentativa de 429 (ou seja, no pior cenário), 12 execuções consecutivas — cerca de 10 horas de bot no ar — registraram **zero** recusas de destino (`grep "destinos aceitaram"`). O caso que de fato acontecia era o 429, e ele tem causa conhecida: a varrida de 40 NFTs (`0xc568b5ba`) posta 40 mensagens em sequência no mesmo webhook e estoura o limite por construção. Isso foi resolvido honrando o `retry_after`.
+
+A fila cobraria caro por esse seguro. Como a chave de dedup é reivindicada **depois** do POST, um post que chega mas cuja resposta se perde volta a ser publicado — e desde que o preço passou a sair certo, uma duplicata tem preço correto e linha de lote, indistinguível de venda real. Perda é invisível; duplicata deixou de parecer erro. Trocar uma perda que não foi observada por profundidade de mercado fantasma é péssimo negócio.
+
+**O gatilho pra reabrir isso é objetivo:** `destinos aceitaram` aparecendo no log, ou alguém reclamando de venda não anunciada. Aí a fila deixa de ser seguro e vira conserto — e o desenho certo não é "acrescentar uma fila", é refazer o par fila + dedup junto, com um estado intermediário que distinga "nunca tentei" de "tentei e não sei o que aconteceu".
+
 **Os anúncios já publicados não têm conserto por código.** O bot não edita nem apaga o que postou — o estado inteiro é um escalar. A retratação dos preços errados de 13/08 (#2985 = 4.200, #2986 = 941, #5086 = 1.250) e de 11/08 (#2432 e #4707 = 459,98 cada, tx `0x15c15b7c`) tem que ser postada **à mão**. Sem isso o piso continua envenenado mesmo com o bot já correto.
 
 ## Arquivos
