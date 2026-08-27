@@ -1,0 +1,76 @@
+# ============================================================================
+# VIGIA — grita quando o bot fica mudo
+# ============================================================================
+#
+# POR QUE ESTE ARQUIVO EXISTE, e por que ele NAO e mais um agendador
+#
+# Em 27/08/2026 o bot passou 9h35 sem processar um bloco. Nada falhou: o
+# workflow de vendas estava `active`, sem erro, Redis e RPC respondendo, suites
+# verdes. Ele so nao foi EXECUTADO -- o cron do GitHub parou de entregar. Uma
+# venda real (#2382, 351 RON) ficou sem anuncio, e a forma de descobrir foi
+# alguem perguntar. O README ja registrava que isso tinha acontecido antes.
+#
+# Estudamos seis alternativas de hospedagem (cron-job.org, Cloudflare Cron
+# Triggers, Deno Deploy, Supabase Cron, Oracle Always Free, GCP e2-micro). As
+# SEIS foram reprovadas, e sempre pelo mesmo defeito: vigiam se o GATILHO
+# disparou, nunca se o ANUNCIO saiu. Trocar de hospedagem sem resolver isso e
+# trocar de silencio.
+#
+# Entao o vigia mede o RESULTADO: "o ponteiro andou?". E a unica pergunta que
+# continua valendo depois de qualquer migracao -- inclusive a do webhook da
+# Alchemy, que e pra onde este projeto vai.
+#
+# CRON FOLGADO DE PROPOSITO. De 3 em 3 horas. O cron do GitHub engole pedido de
+# 1 em 1 minuto (foi o que criou o problema), mas entrega o de 3 horas. O vigia
+# nao pode herdar a cadencia do vigiado -- se ele dependesse do mesmo mecanismo
+# que falha, morreria junto e calado.
+#
+# NAO TEM AUTO-DISPARO, de proposito. O `vendas.yml` se encadeia; este nao. Um
+# vigia que se auto-mantem tem o mesmo modo de falha do vigiado, e ai precisaria
+# de um vigia do vigia. A corrente para aqui.
+#
+# DUAS CAMPAINHAS (ver o cabecalho do vigia.js):
+#   1. Discord, se o secret DISCORD_WEBHOOK_ALERTA existir. Webhook SEPARADO --
+#      "o bot esta mudo" no canal de vendas e ruido pra comunidade.
+#   2. Saida != 0 sempre que houver atraso. O GitHub manda e-mail pro dono
+#      quando um workflow agendado falha. Ou seja: o alarme funciona NO MINUTO
+#      em que este arquivo for commitado, sem configurar secret nenhum.
+name: vigia do bot de vendas
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'   # 17 min depois da hora: fugir do minuto 0, que e
+                             # quando o GitHub tem a maior fila e mais atrasa
+  workflow_dispatch:
+
+# Duas checagens ao mesmo tempo nao fazem mal, mas tambem nao servem pra nada.
+concurrency:
+  group: vigia-do-ronkeverse
+  cancel-in-progress: false
+
+jobs:
+  vigiar:
+    runs-on: ubuntu-latest
+    # Um alarme que trava vira outro silencio. 5 min e folga enorme: o ciclo
+    # ocioso medido leva ~1s, e o vigia faz menos que um ciclo.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Sem `npm ci`: o projeto nao tem dependencia nenhuma, de proposito.
+      - name: conferir se o bot esta em dia
+        env:
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          # Opcional. Sem ele o alarme sai so pelo e-mail de workflow falho.
+          DISCORD_WEBHOOK_ALERTA: ${{ secrets.DISCORD_WEBHOOK_ALERTA }}
+          # Quanto atraso ainda e normal, em minutos. 90 enquanto o desenho for
+          # laco de 50 min + cron; DEPOIS DA MIGRACAO PRO WEBHOOK, baixar pra
+          # ~15 -- com entrega em segundos, 90 min de silencio seria tarde
+          # demais pra um feed de vendas.
+          VIGIA_LIMITE_MIN: '90'
+        run: node vigia.js
