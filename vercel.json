@@ -1,5 +1,22 @@
 {
-  "crons": [
-    { "path": "/api/vendas", "schedule": "* * * * *" }
+  "$comentario": [
+    "SEM CRON AQUI, E ISSO E O DESENHO -- NAO UM ESQUECIMENTO.",
+    "",
+    "Havia { path: /api/vendas, schedule: '* * * * *' }. Nunca funcionou: o plano",
+    "Hobby da Vercel so aceita cron DIARIO, entao pedir de minuto em minuto ou e",
+    "ignorado ou faz a Vercel RECUSAR o deploy. Ficou no arquivo como intencao,",
+    "nao como comportamento.",
+    "",
+    "O /api/vendas continua existindo e continua sendo o ponto de entrada -- so",
+    "que quem o chama passa a ser o WEBHOOK do indexador (Alchemy Custom Webhook",
+    "na Ronin, confirmado suportado em alchemy.com/rpc/ronin), que empurra o",
+    "evento em segundos quando o NFT e transferido.",
+    "",
+    "O detalhe que destrava tudo: funcao invocada por webhook NAO USA CRON, entao",
+    "o teto diario do Hobby deixa de importar. O limite que travava o projeto some",
+    "sem precisar pagar plano nenhum.",
+    "",
+    "Se um dia voltar a existir cron aqui, ele tem que ser diario -- e ai serve",
+    "so como rede de seguranca, nunca como gatilho principal."
   ]
 }
