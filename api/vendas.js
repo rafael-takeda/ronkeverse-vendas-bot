@@ -1,5 +1,22 @@
 /**
- * O GATILHO DA VERCEL. O cron bate aqui; a lógica mora em `lib/ciclo.js`.
+ * O GATILHO. Quem bate aqui é o WEBHOOK do indexador; a lógica mora em
+ * `lib/ciclo.js`.
+ *
+ * NÃO EXISTE MAIS `vercel.json`, e isso é decisão, não esquecimento.
+ * ---------------------------------------------------------------------------
+ * Ele existia só pra declarar `{ path: /api/vendas, schedule: '* * * * *' }`, e
+ * esse cron NUNCA funcionou: o plano Hobby só aceita cron diário. Com o gatilho
+ * virando webhook, o arquivo ficou sem nada pra configurar -- a Vercel detecta
+ * `api/*.js` como função serverless sozinha, sem config nenhuma.
+ *
+ * Tentei manter o arquivo com a explicação dentro, num campo `$comentario`. A
+ * Vercel valida o `vercel.json` contra um schema ESTRITO e RECUSOU O DEPLOY:
+ * "should NOT have additional property `$comentario`". JSON não tem comentário,
+ * e esse schema não perdoa. Por isso a explicação vive aqui, num arquivo que
+ * aceita comentário, ao lado do código que ela explica.
+ *
+ * Se um dia voltar a existir `vercel.json`, ele só pode conter chaves que a
+ * Vercel conhece -- e cron ali, se houver, tem que ser diário.
  *
  * PROTEGIDO POR SEGREDO. Sem isso a URL fica pública e qualquer um pode forçar
  * uma passada — o que não posta venda falsa (a venda vem da cadeia), mas gasta
