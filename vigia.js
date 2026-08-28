@@ -43,10 +43,28 @@
 import { ultimoBloco, usandoKv } from './lib/estado.js'
 import { blocoAtual, transferencias } from './lib/ronin.js'
 
-/* Ronin fecha bloco a cada ~3s. É daqui que sai a conversão blocos -> minutos,
-   e é aproximação de propósito: o alarme não precisa de precisão de relógio,
-   precisa de ordem de grandeza. */
-const SEG_POR_BLOCO = 3
+/* SEGUNDOS POR BLOCO NA RONIN: 2, MEDIDO -- eu tinha escrito 3, de cabeça.
+   ═════════════════════════════════════════════════════════════════════════
+   Medido em 28/08/2026 lendo o timestamp de dois blocos, em três janelas:
+
+     sobre  1.000 blocos: 2,000 s/bloco
+     sobre 10.000 blocos: 2,000 s/bloco
+     sobre 18.611 blocos: 2,000 s/bloco
+
+   Com o 3 antigo, TODO número que este arquivo imprime saía 50% inflado: um
+   atraso real de 136 min era anunciado como 204. E o teto de 90 min disparava
+   de fato aos 60 -- errava pro lado seguro, mas errava, e o número que ia pro
+   Discord era mentira.
+
+   Custou mais do que o alarme: eu usei o mesmo 3 pra calcular janela de
+   varredura ao investigar, procurei uma venda em "12 horas" que na verdade
+   eram 8, não achei, e afirmei ao dono do jogo que não tinha havido venda
+   nenhuma -- enquanto o anúncio dela estava no Discord dele. A venda tinha
+   10,3 horas.
+
+   Se a Ronin mudar o tempo de bloco, este número tem que ser medido de novo,
+   não estimado. */
+const SEG_POR_BLOCO = 2
 
 /* QUANTO ATRASO AINDA É NORMAL.
    Hoje o desenho é laço de 50 min + cron, então buracos de ~50 min acontecem
