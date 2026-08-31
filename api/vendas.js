@@ -24,6 +24,7 @@
  * `Authorization: Bearer $CRON_SECRET` nos crons dela.
  */
 import { umCiclo } from '../lib/ciclo.js'
+import { usandoKv } from '../lib/estado.js'
 
 /**
  * O SEGREDO TAMBÉM VALE NA URL (`?k=...`), e não é preguiça.
@@ -56,8 +57,42 @@ export default async function handler(req, res) {
     const ok = req.headers.authorization === `Bearer ${segredo}` || naUrl === segredo
     if (!ok) return res.status(401).json({ erro: 'nao autorizado' })
   }
+  /* SEM REDIS, NÃO RODA. É o conserto mais valioso deste arquivo.
+     ═══════════════════════════════════════════════════════════════════════
+     `.estado.json` está no `.gitignore`, então ele NÃO EXISTE no deploy da
+     Vercel. Se as variáveis do Upstash sumirem ou o token expirar aqui (já
+     houve rotação neste projeto -- ver `.env.antes-da-rotacao`), o código cai
+     no modo arquivo e o efeito é uma cascata, não um defeito:
+
+       ponteiro nasce vazio a cada invocação  -> varre 200 blocos pra trás
+       `pegaTrava` devolve true sempre         -> nenhuma serialização
+       `jaAnunciado` devolve false sempre      -> nenhum dedup
+       `gravaBloco` escreve em disco read-only -> EROFS -> HTTP 500
+       a Alchemy vê o 500 e REENVIA            -> tudo de novo
+
+     Resultado medido pelo raciocínio acima: cada venda sai 4 a 8 vezes, com
+     preço certo, indistinguível de venda real. Profundidade de mercado
+     fantasma -- exatamente o dano que este bot existe pra evitar.
+
+     Recusar é melhor que tentar: 500 faz a Alchemy reenviar (o evento não se
+     perde) e o vigia grita pelo atraso do ponteiro. Rodar sem Redis não é
+     "degradar", é inundar o canal. */
+  if (!usandoKv) {
+    console.error('[ciclo] sem Redis -- recusando o ciclo em vez de inundar o canal')
+    return res.status(500).json({ erro: 'sem Redis' })
+  }
   try {
     const r = await umCiclo({ webhook: process.env.DISCORD_WEBHOOK })
+    /* 200 SÓ SOBRE TRABALHO FEITO.
+       ─────────────────────────────────────────────────────────────────────
+       A Alchemy só reenvia quando a resposta NÃO é 2xx -- e não existe fila de
+       reentrega, nem API pra listar entrega falha, e o log da Vercel Hobby some
+       em ~1 hora. Um 200 sobre `pulado` (trava ocupada) ou `abortado` (Redis
+       mudo) apaga aquele evento PRA SEMPRE, sem deixar rastro em lugar nenhum.
+       503 é o que devolve a única garantia de entrega que este desenho tem.
+       Sem efeito colateral no Actions: ele roda `node rodar.js` direto e não
+       passa por aqui. */
+    if (r.pulado || r.abortado) return res.status(503).json(r)
     return res.status(200).json(r)
   } catch (e) {
     console.error('[ciclo]', e)

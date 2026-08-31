@@ -42,7 +42,7 @@
  *      o alarme toca. Foi escolhido assim pra que o vigia funcione no minuto
  *      em que for commitado, e não quando alguém lembrar de criar o webhook.
  */
-import { ultimoBloco, usandoKv } from './lib/estado.js'
+import { falhaDePostRecente, ultimoBloco, usandoKv } from './lib/estado.js'
 import { blocoAtual, transferencias } from './lib/ronin.js'
 
 /* SEGUNDOS POR BLOCO NA RONIN: 2, MEDIDO -- eu tinha escrito 3, de cabeça.
@@ -143,7 +143,21 @@ if (!usandoKv) {
 }
 
 if (salvo == null) {
-  console.log('  ponteiro ainda não existe (bot nunca rodou com este Redis) -- nada a cobrar')
+  /* PONTEIRO AUSENTE NÃO É "PRIMEIRO DIA" -- É SINTOMA.
+     ─────────────────────────────────────────────────────────────────────
+     Isto saía VERDE, com a justificativa de que o bot ainda não tinha rodado.
+     Estado de primeiro dia, não de regime: passada a primeira execução, a
+     chave só some se o banco do Upstash foi recriado, se a credencial passou a
+     apontar pra outro banco, ou se alguém apagou. Nesses casos o vigia
+     declarava saúde PRA SEMPRE, enquanto não havia bot nenhum.
+     E o custo de errar pro outro lado é um e-mail no primeiro dia. */
+  console.log('  PONTEIRO NÃO EXISTE no Redis -- ou é a primeira execução, ou a chave sumiu')
+  if (!(await jaAvisou())) {
+    await grita('🔴 **O ponteiro do bot sumiu do Redis.** Se ele já rodou alguma vez, ' +
+      'isso quer dizer que o banco foi recriado ou a credencial aponta pra outro lugar. ' +
+      'O bot vai varrer só os últimos 200 blocos a cada volta e repetir anúncio.')
+  }
+  process.exitCode = 1
   return
 }
 
@@ -155,8 +169,27 @@ console.log(`  cabeça da cadeia        : ${cabeca}`)
 console.log(`  atraso                  : ${atrasoBlocos} blocos (~${atrasoMin} min)`)
 console.log(`  teto aceitável          : ${LIMITE_MIN} min`)
 
+/* O PONTEIRO EM DIA NÃO SIGNIFICA QUE O ANÚNCIO SAIU.
+   ═════════════════════════════════════════════════════════════════════════
+   Esta era a única falha do sistema com a qual o vigia CONCORDAVA: quando
+   nenhum destino do Discord aceita, o `ciclo.js` avança o ponteiro assim mesmo
+   (de propósito -- ver o comentário lá), então o atraso fica zero e este
+   arquivo imprimia "em dia" com o canal mudo.
+   A marca vem do `marcaFalhaDePost`, gravada no momento em que a venda foi
+   recusada. É a única memória de que ela existiu. */
+const falha = await falhaDePostRecente()
+if (falha) {
+  console.log('\n  ATENÇÃO: nas últimas 24h houve venda que NENHUM destino do Discord aceitou.')
+  if (await jaAvisou()) console.log('  (já avisei nas últimas ' + CALADO_POR_H + 'h)')
+  else {
+    await grita('🟠 **Uma venda não conseguiu ser postada no canal.** O ponteiro seguiu em ' +
+      'frente, então ela não volta sozinha. Confira o `DISCORD_WEBHOOK` e se o canal ainda existe.')
+  }
+  process.exitCode = 1
+}
+
 if (atrasoMin <= LIMITE_MIN) {
-  console.log('\n  em dia.\n')
+  console.log(process.exitCode === 1 ? '\n  ponteiro em dia, mas veja o aviso acima.\n' : '\n  em dia.\n')
   return
 }
 

@@ -51,7 +51,19 @@ if (!seco && !webhook) {
     } catch (e) {
       console.warn(`[rodar] volta falhou: ${e.message}`)
       r = { blocos: 0, transferencias: 0, vendas: 0, anunciadas: 0, estado: 'erro' }
+      /* SAIR VERMELHO. Com o laco de 50 minutos, uma volta ruim em 50 era ruido
+         e engolir fazia sentido. Agora e UMA volta por execucao: "a volta
+         falhou" passou a significar "este run nao fez absolutamente nada" -- e
+         ele ficava VERDE no Actions. A rede de seguranca podia estar falhando
+         nas ~96 execucoes diarias sem gerar um unico e-mail.
+         So e seguro porque o passo do sinal de vida ganhou `if: always()`: sem
+         ele, sair 1 pularia o commit que mantem o agendador ligado. */
+      process.exitCode = 1
     }
+    /* `abortado` = nao deu pra ler o ponteiro; o ciclo nao fez nada. Vale
+       e-mail. `pulado` NAO: significa que outra execucao esta trabalhando
+       agora, e isso e o desenho funcionando, nao falha. */
+    if (r.abortado) process.exitCode = 1
     voltas++
     // Uma linha por volta, nao o JSON inteiro: 50 voltas de JSON afogam o log e
     // escondem justamente a volta em que algo aconteceu.

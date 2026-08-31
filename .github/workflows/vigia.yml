@@ -21,14 +21,17 @@
 # continua valendo depois de qualquer migracao -- inclusive a do webhook da
 # Alchemy, que e pra onde este projeto vai.
 #
-# CRON FOLGADO DE PROPOSITO. De 3 em 3 horas. O cron do GitHub engole pedido de
-# 1 em 1 minuto (foi o que criou o problema), mas entrega o de 3 horas. O vigia
-# nao pode herdar a cadencia do vigiado -- se ele dependesse do mesmo mecanismo
-# que falha, morreria junto e calado.
+# DE 30 EM 30 MINUTOS. Comecou de 3 em 3 horas, "pra nao herdar a cadencia do
+# vigiado" -- mas isso confundiu duas coisas. O vigia nao pode herdar o
+# MECANISMO do vigiado (por isso workflow separado, arquivo separado, sinal de
+# vida proprio); a CADENCIA dele so precisa ser mais fina que o problema que
+# ele deve enxergar. Com 3h, ele era incapaz de detectar qualquer coisa abaixo
+# de 3h -- e uma das execucoes agendadas simplesmente nao rodou, o que levava o
+# pior caso pra mais de 6h.
 #
-# NAO TEM AUTO-DISPARO, de proposito. O `vendas.yml` se encadeia; este nao. Um
-# vigia que se auto-mantem tem o mesmo modo de falha do vigiado, e ai precisaria
-# de um vigia do vigia. A corrente para aqui.
+# NAO TEM AUTO-DISPARO, e agora o vendas.yml tambem nao tem. Um vigia que se
+# auto-mantem tem o mesmo modo de falha do vigiado, e ai precisaria de um vigia
+# do vigia. A corrente para aqui.
 #
 # DUAS CAMPAINHAS (ver o cabecalho do vigia.js):
 #   1. Discord, se o secret DISCORD_WEBHOOK_ALERTA existir. Webhook SEPARADO --
@@ -40,8 +43,12 @@ name: vigia do bot de vendas
 
 on:
   schedule:
-    - cron: '17 */3 * * *'   # 17 min depois da hora: fugir do minuto 0, que e
-                             # quando o GitHub tem a maior fila e mais atrasa
+    # DE 30 EM 30 MINUTOS, nao de 3 em 3 horas. Regra que faltava: um vigia
+    # que dorme 3h e incapaz de detectar qualquer coisa abaixo de 3h -- e com
+    # o atraso do proprio cron do GitHub o pior caso passava de 6h. Custa ~48
+    # execucoes/dia de 2 chamadas de Redis: ruido contra os 500 mil/mes.
+    # Minutos deslocados de :00 pelo mesmo motivo do vendas.yml.
+    - cron: '13,43 * * * *'
   workflow_dispatch:
 
 # Duas checagens ao mesmo tempo nao fazem mal, mas tambem nao servem pra nada.
@@ -52,6 +59,9 @@ concurrency:
 jobs:
   vigiar:
     runs-on: ubuntu-latest
+    # PRA COMMITAR O PROPRIO SINAL DE VIDA -- ver o ultimo passo deste arquivo.
+    permissions:
+      contents: write
     # Um alarme que trava vira outro silencio. 5 min e folga enorme: o ciclo
     # ocioso medido leva ~1s, e o vigia faz menos que um ciclo.
     timeout-minutes: 5
@@ -69,9 +79,47 @@ jobs:
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
           # Opcional. Sem ele o alarme sai so pelo e-mail de workflow falho.
           DISCORD_WEBHOOK_ALERTA: ${{ secrets.DISCORD_WEBHOOK_ALERTA }}
-          # Quanto atraso ainda e normal, em minutos. 90 enquanto o desenho for
-          # laco de 50 min + cron; DEPOIS DA MIGRACAO PRO WEBHOOK, baixar pra
-          # ~15 -- com entrega em segundos, 90 min de silencio seria tarde
-          # demais pra um feed de vendas.
-          VIGIA_LIMITE_MIN: '90'
+          # NAO BAIXE PARA 15. O comentario aqui mandava fazer isso depois da
+          # migracao pro webhook, e estava ERRADO -- corrigido antes que a
+          # proxima sessao refizesse o engano.
+          #
+          # Duas razoes. (1) O webhook NAO DISPARA em periodo sem venda: esta
+          # colecao ja passou 13h sem uma transferencia, e nesse tempo quem
+          # segura o ponteiro perto da cabeca e a rede do Actions, de 15 em 15
+          # minutos. (2) Regra geral: o limiar tem que ser >= a cadencia do
+          # OBSERVADOR. Com o vigia acordando de 30 em 30 min, 60 e defensavel;
+          # 20 dispararia alarme falso com o sistema perfeitamente saudavel --
+          # e alarme falso e como alarme deixa de ser lido.
+          VIGIA_LIMITE_MIN: '60'
         run: node vigia.js
+
+      # ------------------------------------------------------------------
+      # O VIGIA NAO PODE DEPENDER DA SAUDE DO VIGIADO -- e dependia.
+      #
+      # O GitHub desativa workflow agendado depois de 60 dias sem commit no
+      # repositorio. Ate aqui o UNICO commit mensal morava dentro do
+      # vendas.yml. Ou seja: se o bot adoecesse, o commit parava junto, e 60
+      # dias depois os DOIS workflows morriam no mesmo instante -- sem exit 1 e
+      # sem e-mail, porque workflow desativado nao falha: ele so nao roda.
+      #
+      # O vigia seria incapaz de avisar da propria morte, que e exatamente o
+      # modo de falha que ele existe pra impedir.
+      #
+      # Arquivo PROPRIO (.sinal-vigia), pra que este passo nao dependa do
+      # estado do .sinal do outro workflow. `if: always()` pelo mesmo motivo do
+      # vendas.yml: quando o vigia GRITA ele sai com codigo 1, e sem o always()
+      # o sinal de vida seria pulado justamente nos meses em que houve
+      # problema.
+      # ------------------------------------------------------------------
+      - name: sinal de vida do vigia (1x por mes)
+        if: always()
+        run: |
+          mes=$(date -u +%Y-%m)
+          if [ "$(cat .sinal-vigia 2>/dev/null)" != "$mes" ]; then
+            echo "$mes" > .sinal-vigia
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .sinal-vigia
+            git commit -m "sinal de vida do vigia $mes"
+            git pull --rebase --autostash && git push
+          fi

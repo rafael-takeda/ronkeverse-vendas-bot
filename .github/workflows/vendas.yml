@@ -24,7 +24,11 @@ on:
     # O GitHub mantem no maximo UM run pendente por grupo de concorrencia -- os
     # gatilhos extras substituem o pendente em vez de empilhar. Entao pedir mais
     # nao cria fila infinita.
-    - cron: '*/15 * * * *'
+    # MINUTOS DESLOCADOS: a doc do GitHub diz que job agendado pode ser
+    # DESCARTADO em horario de pico, e nomeia o inicio da hora como o pico.
+    # '*/15' cai em :00. Deslocar e a unica mitigacao que eles proprios
+    # oferecem, e o vigia.yml ja usa esse truque.
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch: # botao pra rodar na hora, util pra testar
 
 # Duas execucoes ao mesmo tempo varreriam a mesma faixa e poderiam anunciar em
@@ -39,7 +43,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # sinal de vida
-      actions: write  # disparar a proxima execucao (ver o fim do arquivo)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,10 +56,13 @@ jobs:
       # O teto do job no Actions e 6 horas, entao 50 min tem folga de sobra, e
       # minuto em repositorio publico e ilimitado.
       - run: node rodar.js
-        timeout-minutes: 55
+        # UMA VOLTA E SAI. Sem MINUTOS/INTERVALO_S o rodar.js faz um ciclo e
+        # encerra (o `if (Date.now() >= ate) break` dispara na primeira volta).
+        # O laco de 50 min saiu: ele era um servidor rodando dentro do CI, e os
+        # Additional Product Terms do GitHub proibem Actions "as part of a
+        # serverless application". Cron curto e uso legitimo; laco 24/7 nao.
+        timeout-minutes: 5
         env:
-          MINUTOS: '50'
-          INTERVALO_S: '60'
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           # Os nomes do Upstash. O KV da Vercel chama o MESMO par de
           # KV_REST_API_*, e o codigo aceita os dois -- mas o segredo tem que
@@ -77,7 +83,13 @@ jobs:
       #
       # Uma linha de texto por mes basta pra manter o relogio zerado. Roda so na
       # virada do mes, entao sao 12 commits por ano.
+      # `if: always()` NAO E DETALHE: sem ele, o passo vem depois do `node
+      # rodar.js` e e PULADO quando o bot falha. Ai "o bot esta doente" passa a
+      # significar "o relogio dos 60 dias nao zera", e os dois piores modos de
+      # falha do sistema apertam as maos: o bot quebrado desativa o agendador
+      # que o traria de volta, e workflow desativado nao falha -- so nao roda.
       - name: sinal de vida (1x por mes)
+        if: always()
         run: |
           mes=$(date -u +%Y-%m)
           if [ "$(cat .sinal 2>/dev/null)" != "$mes" ]; then
@@ -86,26 +98,30 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add .sinal
             git commit -m "sinal de vida $mes -- mantem o agendador ligado"
-            git push
+            git pull --rebase --autostash && git push
           fi
 
       # ------------------------------------------------------------------
-      # A PROXIMA EXECUCAO E DISPARADA POR ESTA. Sem depender do cron.
+      # O AUTO-DISPARO SAIU, e com ele o laco de 50 minutos.
       #
-      # O cron do Actions e melhor-esforco de verdade: com "*/5" ele entregava
-      # uma por hora, e com "*/15" passou UMA HORA E MEIA sem entregar nada
-      # (11/08/2026, 00:31 -> 02:00). Nesse buraco duas vendas ficaram sem
-      # anuncio ate alguem reclamar.
+      # Aqui havia um passo que chamava `gh workflow run` no fim de cada
+      # execucao, pra corrente se puxar sozinha sem depender do cron. Duas
+      # coisas o mataram:
       #
-      # Manter o bot vivo nao pode depender de um agendador que as vezes nao
-      # agenda. Entao cada execucao termina chamando a proxima -- a corrente se
-      # puxa sozinha, e o cron vira so a rede de seguranca pra o caso de um elo
-      # arrebentar.
+      # 1. ELE NUNCA FOI UMA CORRENTE. A guarda era
+      #    `if: always() && github.event_name != 'workflow_dispatch'`, entao a
+      #    execucao disparada NAO disparava a seguinte: cada schedule gerava um
+      #    dispatch e a corrente morria no elo 2. Medido no historico de runs.
       #
-      # `if: always()` porque a corrente NAO pode parar quando uma passada falha:
-      # falha e justamente quando mais importa ter a proxima.
-      - name: chama a proxima execucao
-        if: always() && github.event_name != 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run vendas.yml --repo ${{ github.repository }}
+      # 2. MESMO FUNCIONANDO, ELE ERA PROIBIDO. Manter Actions rodando 24/7 e
+      #    o exemplo literal de "as part of a serverless application" nos
+      #    Additional Product Terms do GitHub.
+      #
+      # O gatilho agora e o WEBHOOK da Alchemy, que chama /api/vendas na Vercel
+      # em segundos. Este workflow virou rede de seguranca: uma volta a cada 15
+      # minutos, poucos segundos cada.
+      #
+      # E ele continua sendo o UNICO executor capaz de drenar buraco grande: a
+      # funcao da Vercel morre em 60s (ou 300s), entao um atraso de horas nunca
+      # seria recuperado por la. Aqui nao ha esse teto.
+      # ------------------------------------------------------------------
