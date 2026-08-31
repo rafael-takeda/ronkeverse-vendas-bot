@@ -4,7 +4,8 @@
 #
 # POR QUE ESTE ARQUIVO EXISTE, e por que ele NAO e mais um agendador
 #
-# Em 27/08/2026 o bot passou 9h35 sem processar um bloco. Nada falhou: o
+# Em 27/08/2026 o bot passou 6h23 sem processar um bloco (na hora eu disse
+# 9h35, calculando com 3s por bloco quando a Ronin faz 2s). Nada falhou: o
 # workflow de vendas estava `active`, sem erro, Redis e RPC respondendo, suites
 # verdes. Ele so nao foi EXECUTADO -- o cron do GitHub parou de entregar. Uma
 # venda real (#2382, 351 RON) ficou sem anuncio, e a forma de descobrir foi

@@ -5,7 +5,9 @@
  *
  * POR QUE ISTO EXISTE
  *
- * Em 27/08/2026 o bot passou 9h35 sem processar bloco nenhum. Não quebrou:
+ * Em 27/08/2026 o bot passou 6h23 sem processar bloco nenhum. (Na hora eu
+ * anunciei 9h35, e estava errado: calculei com 3s por bloco quando a Ronin faz
+ * 2s -- ver `SEG_POR_BLOCO`. O fato é o mesmo, o número não era.) Não quebrou:
  * o workflow estava `active`, sem falha, o Redis respondia, o RPC respondia,
  * as suítes passavam. Ele simplesmente não foi EXECUTADO — o cron do GitHub
  * parou de entregar, e nada no sistema tinha o trabalho de notar isso. Uma
