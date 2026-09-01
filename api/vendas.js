@@ -106,8 +106,24 @@ export default async function handler(req, res) {
        chega intacto -- três coisas que só o primeiro evento real confirma. Se
        qualquer uma estivesse errada, o bot ficaria mudo, e mudo é o defeito
        que este projeto inteiro existe pra evitar.
-       Então o `?k=` continua valendo até o HMAC ser visto funcionando com
-       venda de verdade. Aí ele sai, e a URL deixa de carregar segredo. */
+       ONDE ISSO ESTÁ (01/09/2026): o `Test URL` do painel da Alchemy JÁ passou
+       pela porta do HMAC -- o log da Vercel registrou
+
+         01:02:23 POST /api/vendas 200
+             [auth] entrou por assinatura HMAC
+
+       o que confirma de uma vez as três incógnitas: a Vercel honra o
+       `bodyParser: false` em função avulsa, a Alchemy assina como a doc diz, e
+       as chaves na variável estão certas.
+
+       FALTA UMA COISA SÓ pra remover este bloco: ver a mesma linha depois de
+       uma VENDA DE VERDADE, não de um teste. A assinatura sai do mesmo lugar
+       nos dois casos, entao a chance de divergir e pequena -- mas o dono do
+       projeto está viajando, e o custo de errar é o bot mudo sem ninguém pra
+       consertar. Decisão dele, e a certa.
+
+       Quando essa linha aparecer numa venda real: apagar este `if` inteiro e a
+       variável CRON_SECRET, e tirar o `?k=` da URL nos dois webhooks. */
     const naUrl = new URL(req.url, 'http://x').searchParams.get('k')
     const ok = req.headers.authorization === `Bearer ${segredo}` || naUrl === segredo
     if (!ok) return res.status(401).json({ erro: 'nao autorizado' })
