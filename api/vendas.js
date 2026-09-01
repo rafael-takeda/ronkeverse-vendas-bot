@@ -23,8 +23,49 @@
  * execução e pode fazer o ponteiro avançar na frente do anúncio. A Vercel manda
  * `Authorization: Bearer $CRON_SECRET` nos crons dela.
  */
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { umCiclo } from '../lib/ciclo.js'
 import { usandoKv } from '../lib/estado.js'
+
+/* CORPO CRU, NÃO PARSEADO -- exigência do HMAC.
+   ═══════════════════════════════════════════════════════════════════════════
+   A Alchemy assina os BYTES que ela mandou. Qualquer re-serialização muda a
+   ordem das chaves e o espaçamento, e a assinatura deixa de bater -- a doc dela
+   insiste nisso. A Vercel, por padrão, parseia JSON e entrega `req.body`; com
+   isso o original se perde antes de a gente olhar.
+   Este handler nunca leu o corpo (o webhook é só campainha), então desligar o
+   parser não custa nada aqui. */
+export const config = { api: { bodyParser: false } }
+
+async function corpoCru(req) {
+  if (req.method !== 'POST') return null
+  try {
+    const partes = []
+    for await (const p of req) partes.push(p)
+    return Buffer.concat(partes)
+  } catch { return null }
+}
+
+/* DUAS CHAVES, PORQUE HÁ DOIS WEBHOOKS.
+   A chave de assinatura da Alchemy é POR WEBHOOK, não por app -- e este projeto
+   tem o Custom ("Ronkeverse") e o Address Activity ("Ronkeverse AA"), cada um
+   com a sua. Aceita lista separada por vírgula. */
+const chavesDeAssinatura = (process.env.ALCHEMY_SIGNING_KEYS || '')
+  .split(',').map((k) => k.trim()).filter(Boolean)
+
+function assinaturaConfere(corpo, assinatura) {
+  if (!corpo || !assinatura || !chavesDeAssinatura.length) return false
+  for (const chave of chavesDeAssinatura) {
+    const esperado = createHmac('sha256', chave).update(corpo).digest('hex')
+    const a = Buffer.from(esperado, 'utf8')
+    const b = Buffer.from(String(assinatura), 'utf8')
+    /* `timingSafeEqual` explode com tamanhos diferentes, então o length vem
+       antes -- e comparar tamanho não vaza nada útil, hex de sha256 é sempre
+       64 caracteres. */
+    if (a.length === b.length && timingSafeEqual(a, b)) return true
+  }
+  return false
+}
 
 /**
  * O SEGREDO TAMBÉM VALE NA URL (`?k=...`), e não é preguiça.
@@ -51,12 +92,29 @@ import { usandoKv } from '../lib/estado.js'
  * estiver de pé e provado -- não antes, pra não depurar duas coisas juntas.
  */
 export default async function handler(req, res) {
+  /* O CORPO É LIDO ANTES DE TUDO, e uma vez só: stream se consome. */
+  const corpo = await corpoCru(req)
+  const porAssinatura = assinaturaConfere(corpo, req.headers['x-alchemy-signature'])
+
   const segredo = process.env.CRON_SECRET
-  if (segredo) {
+  if (segredo && !porAssinatura) {
+    /* AS TRÊS PORTAS, e a ordem importa pouco -- o que importa é que o HMAC
+       NÃO substituiu o `?k=`, ele se somou.
+       ─────────────────────────────────────────────────────────────────────
+       Trocar de uma vez seria apostar que eu configurei as chaves certas na
+       Vercel, que a Alchemy assina do jeito que a doc diz, e que o corpo cru
+       chega intacto -- três coisas que só o primeiro evento real confirma. Se
+       qualquer uma estivesse errada, o bot ficaria mudo, e mudo é o defeito
+       que este projeto inteiro existe pra evitar.
+       Então o `?k=` continua valendo até o HMAC ser visto funcionando com
+       venda de verdade. Aí ele sai, e a URL deixa de carregar segredo. */
     const naUrl = new URL(req.url, 'http://x').searchParams.get('k')
     const ok = req.headers.authorization === `Bearer ${segredo}` || naUrl === segredo
     if (!ok) return res.status(401).json({ erro: 'nao autorizado' })
   }
+  /* deixa rastro de QUAL porta abriu: é assim que a gente vai saber que o HMAC
+     está funcionando de verdade, e que dá pra aposentar o `?k=` */
+  console.log('[auth] entrou por ' + (porAssinatura ? 'assinatura HMAC' : 'segredo na URL'))
   /* SEM REDIS, NÃO RODA. É o conserto mais valioso deste arquivo.
      ═══════════════════════════════════════════════════════════════════════
      `.estado.json` está no `.gitignore`, então ele NÃO EXISTE no deploy da
