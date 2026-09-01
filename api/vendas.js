@@ -25,7 +25,7 @@
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { umCiclo } from '../lib/ciclo.js'
-import { usandoKv } from '../lib/estado.js'
+import { anotaEntrega, usandoKv } from '../lib/estado.js'
 
 /* CORPO CRU, NÃO PARSEADO -- exigência do HMAC.
    ═══════════════════════════════════════════════════════════════════════════
@@ -130,7 +130,8 @@ export default async function handler(req, res) {
   }
   /* deixa rastro de QUAL porta abriu: é assim que a gente vai saber que o HMAC
      está funcionando de verdade, e que dá pra aposentar o `?k=` */
-  console.log('[auth] entrou por ' + (porAssinatura ? 'assinatura HMAC' : 'segredo na URL'))
+  const porta = porAssinatura ? 'assinatura HMAC' : 'segredo na URL'
+  console.log('[auth] entrou por ' + porta)
   /* SEM REDIS, NÃO RODA. É o conserto mais valioso deste arquivo.
      ═══════════════════════════════════════════════════════════════════════
      `.estado.json` está no `.gitignore`, então ele NÃO EXISTE no deploy da
@@ -166,8 +167,14 @@ export default async function handler(req, res) {
        503 é o que devolve a única garantia de entrega que este desenho tem.
        Sem efeito colateral no Actions: ele roda `node rodar.js` direto e não
        passa por aqui. */
-    if (r.pulado || r.abortado) return res.status(503).json(r)
-    return res.status(200).json(r)
+    const status = (r.pulado || r.abortado) ? 503 : 200
+    /* LIVRO-CAIXA: a Alchemy nao tem historico de entrega e o log da Vercel
+       dura ~1h. Sem isto, "nao ha POST no log" nao distingue "ela nao
+       disparou" de "disparou e nao chegou" de "chegou e nao fez nada" -- e foi
+       exatamente onde a investigacao da venda #4365 empacou. */
+    await anotaEntrega({ porta, status, anunciadas: r.anunciadas, vendas: r.vendas,
+      blocos: r.blocos, pulado: !!r.pulado, abortado: !!r.abortado })
+    return res.status(status).json(r)
   } catch (e) {
     console.error('[ciclo]', e)
     return res.status(500).json({ erro: String(e.message || e) })
