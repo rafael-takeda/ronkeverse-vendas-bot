@@ -121,5 +121,13 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add .sinal-vigia
             git commit -m "sinal de vida do vigia $mes"
-            git pull --rebase --autostash && git push
+            # `origin main` EXPLICITO: o actions/checkout clona RASO, e um
+            # `git pull --rebase` pelado responde "up to date" sem enxergar o
+            # commit que o outro workflow acabou de empurrar.
+            # E `|| echo ::warning`: os dois workflows commitam em main agora,
+            # entao corrida existe. Ela e transitoria e se cura sozinha -- o
+            # arquivo continua com o mes velho, e a proxima volta tenta de novo.
+            # Derrubar a execucao por isso seria e-mail de alarme por um
+            # problema que ja passou.
+            git pull --rebase --autostash origin main && git push || echo "::warning::sinal de vida nao subiu (corrida); a proxima volta tenta"
           fi
