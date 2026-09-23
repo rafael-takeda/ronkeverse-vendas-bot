@@ -90,7 +90,7 @@ Posta cada listing novo da Ronin Market num canal próprio: imagem, preço, vend
 2. No `.env` do VPS: `DISCORD_WEBHOOK_LISTINGS=<a URL>` (aceita mais de uma, separadas por vírgula).
 3. `systemctl restart ronke-vendas`. O log diz `[listings] ligado: 1 destino(s)`.
 
-A primeira passada **registra os listings que já estão ativos sem postar nenhum** — sem isso o canal receberia uns 300 de uma vez. Dali em diante sai só o que for listado depois. Rajada do mesmo vendedor vai em mensagens de até 10.
+A primeira passada **não posta nada: grava a hora em que o canal começou**, e listing criado antes disso nunca sai — nem quando sobe pra janela dos 50 mais novos porque os recentes foram vendidos. Dali em diante sai só o que for listado depois. Rajada do mesmo vendedor vai em mensagens de até 10.
 
 **Listing não passa pela cadeia**, por isso ele não vem do mesmo lugar que as vendas. Medido em 22/09/2026: um vendedor listou três NFTs e mandou uma transação só — o `setApprovalForAll`, que a marketplace pede uma vez. Os listings vêm da GraphQL que o próprio site da Ronin Market usa, que **não é API documentada**. Se a Sky Mavis mudar o formato, o log mostra `[listings] passada falhou` a cada volta e as vendas continuam normais — a passada de listings roda isolada, depois do ciclo de vendas.
 

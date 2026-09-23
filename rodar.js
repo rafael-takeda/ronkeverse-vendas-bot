@@ -121,9 +121,9 @@ if (!seco && !webhook) {
       try {
         const l = await listings({ webhook: webhookListings, seco })
         if (l.semeados !== undefined) {
-          console.log(`${marca}  listings: primeira passada, ${l.semeados} ativo(s) registrados sem postar`)
+          console.log(`${marca}  listings: primeira passada -- o canal conta a partir de agora (os ativos de antes ficam de fora)`)
         } else if (l.semearia !== undefined) {
-          console.log(`${marca}  listings: [seco] a primeira passada registraria ${l.semearia} ativo(s) sem postar`)
+          console.log(`${marca}  listings: [seco] a primeira passada marcaria o inicio do canal agora, sem postar nada`)
         } else if (l.novos) {
           console.log(`${marca}  listings: ${l.novos} novo(s), ${l.anunciados ?? 0} no canal`)
         }

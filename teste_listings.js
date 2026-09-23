@@ -10,7 +10,7 @@
  * que mudar de formato tem que aparecer aqui antes de aparecer no canal.
  */
 import { anunciaListings, montaEmbedDeListing } from './lib/discord.js'
-import { listingJaAnunciado, marcaListing } from './lib/estado.js'
+import { inicioDosListings, listingJaAnunciado, marcaListing } from './lib/estado.js'
 import { JANELA, criaPassadaDeListings, normaliza, ultimosListings } from './lib/listings.js'
 
 let falhas = 0
@@ -148,7 +148,7 @@ console.log('\n  --- a passada: o que sai, o que fica marcado ---')
 function redisDeMentira() {
   const chaves = new Map()
   const s = {
-    iniciado: false,
+    inicio: null,
     gets: 0,
     sets: 0,
     quebraLeitura: false,
@@ -165,14 +165,15 @@ function redisDeMentira() {
         if (s.quebraEscrita) throw new Error('Redis fora')
         chaves.set(o, exp)
       },
-      iniciados: async () => {
+      inicio: async () => {
         s.gets++
         if (s.quebraLeitura) throw new Error('Redis fora')
-        return s.iniciado
+        return s.inicio
       },
-      marcaIniciados: async () => {
+      marcaInicio: async (ms) => {
         s.sets++
-        s.iniciado = true
+        if (s.quebraEscrita) throw new Error('Redis fora')
+        s.inicio = ms
       },
     },
   }
@@ -192,9 +193,14 @@ function discordDeMentira() {
   return d
 }
 
-/* Listing com id de ordem e hora; a GraphQL devolve do mais novo pro mais velho. */
+/* Listing com id de ordem; a hora de início cresce com o id, como na API, que
+   devolve do mais novo pro mais velho. */
 const L = (ordem) => ({ ...l0, ordem: String(ordem), id: String(ordem), inicio: 1790000000 + ordem, expira: 1792000000 })
 const janela = (...ordens) => ordens.sort((a, b) => b - a).map(L)
+
+/* O canal "nasce" entre o listing 3 e o 4: 1, 2 e 3 são de antes dele. */
+const NASCIMENTO = (1790000000 + 3.5) * 1000
+const relogio = () => NASCIMENTO
 
 let red = redisDeMentira()
 let dis = discordDeMentira()
@@ -205,18 +211,27 @@ const busca = async (q) => {
   if (q !== JANELA) conf(false, `pede a janela inteira (${JANELA})`, String(q))
   return atual
 }
-let passada = criaPassadaDeListings({
-  busca,
-  estado: red.estado,
-  anuncia: dis.anuncia,
-  nomeColecao: async () => 'Ronkeverse',
-  temEstado: true,
-})
+/* Uma passada nova é um processo novo: memória vazia, Redis o mesmo. */
+const nova = (extra = {}) =>
+  criaPassadaDeListings({
+    busca,
+    estado: red.estado,
+    anuncia: dis.anuncia,
+    nomeColecao: async () => 'Ronkeverse',
+    temEstado: true,
+    relogio,
+    ...extra,
+  })
+let passada = nova()
 
 let p = await passada({ webhook: W1 })
-conf(p.semeados === 3, 'primeira passada da história: registra os 3 ativos', JSON.stringify(p))
+conf(p.semeados === 3, 'primeira passada da história: grava o início do canal', JSON.stringify(p))
 conf(dis.mensagens.length === 0, 'primeira passada: NADA no canal')
-conf(red.chaves.size === 3 && red.iniciado, 'os 3 marcados, e a marca de iniciado por último')
+conf(
+  red.inicio === NASCIMENTO && red.sets === 1 && red.chaves.size === 0,
+  'uma escrita só, a hora de início — nada de marcar ordem por ordem',
+  `${red.sets} SET`,
+)
 
 red.gets = 0
 red.sets = 0
@@ -234,6 +249,18 @@ conf(red.gets === 1, 'custo: 1 GET pro listing novo', `${red.gets} GET`)
 atual = janela(1, 2, 3, 4, 5, 6, 7)
 p = await passada({ webhook: W1 })
 conf(JSON.stringify(dis.mensagens.at(-1)) === '["5","6","7"]', 'vários novos: do mais velho pro mais novo', JSON.stringify(dis.mensagens.at(-1)))
+
+console.log('\n  --- listing de ANTES do canal subindo pra janela ---')
+/* O furo da primeira versão: a janela são os 50 mais novos de ~300 ativos.
+   Quando os mais novos são vendidos, um listing de semanas atrás entra na
+   janela — nunca marcado, e ele saía no canal como novidade. */
+const velho = { ...L(0), ordem: '42', id: '4242', inicio: 1780000000 }
+red.gets = 0
+const mensagensAntesDoVelho = dis.mensagens.length
+atual = [...janela(4, 5, 6, 7), velho]
+p = await passada({ webhook: W1 })
+conf(p.novos === 0 && dis.mensagens.length === mensagensAntesDoVelho, 'listing antigo que sobe pra janela NÃO sai no canal')
+conf(red.gets === 0, 'e nem custa consulta ao Redis: o piso filtra antes', `${red.gets} GET`)
 
 console.log('\n  --- quando o Discord recusa ---')
 dis.aceita = false
@@ -275,56 +302,57 @@ console.log('\n  --- o serviço reiniciou (a memória some, o Redis fica) ---')
 red.gets = 0
 dis.mensagens = []
 atual = janela(1, 2, 3, 4, 5, 6, 7, 8, 9, 11)
-passada = criaPassadaDeListings({
-  busca,
-  estado: red.estado,
-  anuncia: dis.anuncia,
-  nomeColecao: async () => 'Ronkeverse',
-  temEstado: true,
-})
+passada = nova()
 p = await passada({ webhook: W1 })
 conf(p.novos === 1 && JSON.stringify(dis.mensagens[0]) === '["11"]', 'só o que nasceu durante a queda sai', JSON.stringify(dis.mensagens))
-conf(red.gets === 11, 'custo do reinício: 1 GET da marca + 1 por ordem da janela', `${red.gets} GET`)
+conf(
+  red.gets === 8,
+  'custo do reinício: 1 GET do piso + 1 por listing da janela posterior a ele (4..9 e 11)',
+  `${red.gets} GET`,
+)
 
 console.log('\n  --- a janela anda ---')
-atual = janela(2, 3, 4, 5, 6, 7, 8, 9, 11)
+atual = janela(1, 2, 3, 5, 6, 7, 8, 9, 11)
 await passada({ webhook: W1 })
 red.gets = 0
 atual = janela(1, 2, 3, 4, 5, 6, 7, 8, 9, 11)
 p = await passada({ webhook: W1 })
-conf(p.novos === 0, 'ordem que saiu da janela e voltou: não reposta')
+conf(p.novos === 0, 'listing que saiu da janela e voltou: não reposta')
 conf(red.gets === 1, 'e a memória não guarda o que saiu da janela (1 GET pra conferir)', `${red.gets} GET`)
 
-console.log('\n  --- semeadura que cai no meio ---')
+console.log('\n  --- a primeira passada que cai no meio ---')
 red = redisDeMentira()
 dis = discordDeMentira()
 atual = janela(1, 2, 3)
 red.quebraEscrita = true
-passada = criaPassadaDeListings({ busca, estado: red.estado, anuncia: dis.anuncia, nomeColecao: async () => 'x', temEstado: true })
+passada = nova()
 lancou = false
 try {
   await passada({ webhook: W1 })
 } catch {
   lancou = true
 }
-conf(lancou && !red.iniciado, 'escrita falhou na semeadura: NÃO marca como iniciado')
+conf(lancou && red.inicio === null, 'gravar o início falhou: a passada lança e o canal não começa')
 red.quebraEscrita = false
 p = await passada({ webhook: W1 })
-conf(p.semeados === 3 && dis.mensagens.length === 0, 'próxima passada semeia de novo, sem postar nada')
+conf(
+  p.semeados === 3 && dis.mensagens.length === 0 && red.inicio === NASCIMENTO,
+  'próxima passada grava o início, sem postar nada',
+)
 
 console.log('\n  --- modo seco e sem Redis ---')
 red = redisDeMentira()
 dis = discordDeMentira()
-passada = criaPassadaDeListings({ busca, estado: red.estado, anuncia: dis.anuncia, nomeColecao: async () => 'x', temEstado: true })
+passada = nova()
 p = await passada({ webhook: W1, seco: true })
-conf(p.semearia === 3 && red.sets === 0 && !red.iniciado, 'seco na primeira vez: diz quanto semearia, e não grava nada')
-red.iniciado = true
-atual = janela(1, 2, 3)
+conf(p.semearia === 3 && red.sets === 0 && red.inicio === null, 'seco na primeira vez: diz o que faria, e não grava nada')
+red.inicio = NASCIMENTO
+atual = janela(1, 2, 3, 4, 5, 6)
 p = await passada({ webhook: W1, seco: true })
 conf(p.novos === 3 && dis.mensagens.length === 0 && red.sets === 0, 'seco com novidade: mostra, não posta, não marca')
 
 buscas = 0
-passada = criaPassadaDeListings({ busca, estado: red.estado, anuncia: dis.anuncia, nomeColecao: async () => 'x', temEstado: false })
+passada = nova({ temEstado: false })
 p = await passada({ webhook: W1 })
 conf(p.pulado === 'sem-redis' && buscas === 0, 'sem Redis: nem consulta a marketplace')
 
@@ -344,6 +372,21 @@ conf(caminhos[0].endsWith('/set/ronkeverse%3Alisting%3A11395820/1/ex/2678400'), 
 conf(caminhos[1].endsWith('/ex/86400'), 'ordem já vencida: guarda 1 dia, nunca TTL negativo', caminhos[1].split('/').slice(-2).join('/'))
 conf(caminhos[2].endsWith('/ex/15724800'), 'ordem de 181 dias: chave vive 182', caminhos[2].split('/').slice(-2).join('/'))
 conf(caminhos[3].endsWith('/get/ronkeverse%3Alisting%3A11395820') && jaFoi === false, 'leitura pela mesma chave; null = não anunciado')
+
+/* O piso lido do Redis: valor que não parece timestamp em ms não pode virar
+   piso — um piso em 1970 anunciaria a janela inteira. */
+const pisoLido = async (valor) => {
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ result: valor }) })
+  try {
+    return await inicioDosListings()
+  } finally {
+    globalThis.fetch = fetchDaRede
+  }
+}
+conf((await pisoLido(null)) === null, 'sem marca de início: null (o canal nunca rodou)')
+conf((await pisoLido('1790000003500')) === 1790000003500, 'marca de início lida em ms')
+conf((await pisoLido('1')) === null, 'marca que não parece timestamp: null, nunca piso em 1970')
+conf((await pisoLido('abc')) === null, 'marca ilegível: null')
 
 console.log('\n  --- a GraphQL de verdade (não é API documentada: se mudar, é aqui que aparece) ---')
 try {
