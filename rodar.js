@@ -5,6 +5,9 @@
  *   node rodar.js            uma passada so
  *   MINUTOS=50 node rodar.js fica vivo 50 min, checando a cada minuto
  *
+ * Com DISCORD_WEBHOOK_LISTINGS no ambiente, cada volta tambem posta os listings
+ * novos da Ronin Market num canal proprio. Ver `lib/listings.js`.
+ *
  * ---------------------------------------------------------------------------
  * POR QUE EXISTE O MODO QUE FICA VIVO
  * ---------------------------------------------------------------------------
@@ -22,11 +25,40 @@
  * ilimitado, entao isso nao custa nada.
  */
 import { umCiclo } from './lib/ciclo.js'
+import { listaDeWebhooks } from './lib/discord.js'
+import { usandoKv } from './lib/estado.js'
+import { criaPassadaDeListings } from './lib/listings.js'
 
 const seco = process.argv.includes('--seco')
 const webhook = process.env.DISCORD_WEBHOOK
 const minutos = Number(process.env.MINUTOS || 0)
 const intervalo = Number(process.env.INTERVALO_S || 60) * 1000
+
+/*
+ * LISTINGS SÓ LIGAM COM DESTINO DE VERDADE E COM REDIS.
+ *
+ * Destino inválido não é detalhe: com zero webhooks válidos nenhum post é
+ * aceito, nada é marcado, e cada volta voltaria a perguntar ao Redis pelas
+ * mesmas ordens. Recusar aqui, UMA vez e com o motivo no log, custa menos que
+ * descobrir pela conta do Upstash. No modo seco liga sem destino, pra mostrar
+ * o que sairia.
+ */
+const webhookListings = process.env.DISCORD_WEBHOOK_LISTINGS
+const destinosListings = listaDeWebhooks(webhookListings).length
+let listings = null
+if (!usandoKv && (seco || webhookListings)) {
+  console.warn('[listings] DESLIGADO: sem Redis nao ha como saber o que ja foi anunciado')
+} else if (seco) {
+  listings = criaPassadaDeListings()
+  console.log('[listings] modo seco: mostra os listings novos, sem postar e sem marcar')
+} else if (destinosListings) {
+  listings = criaPassadaDeListings()
+  console.log(`[listings] ligado: ${destinosListings} destino(s)`)
+} else if (webhookListings) {
+  console.warn('[listings] DESLIGADO: DISCORD_WEBHOOK_LISTINGS nao tem endereco de webhook valido')
+} else {
+  console.log('[listings] desligado (sem DISCORD_WEBHOOK_LISTINGS)')
+}
 
 if (!seco && !webhook) {
   console.error('Falta DISCORD_WEBHOOK. Use --seco pra testar sem postar.')
@@ -72,6 +104,33 @@ if (!seco && !webhook) {
       `${marca}  blocos ${r.blocos}  transf ${r.transferencias}  vendas ${r.vendas}` +
         `  anunciadas ${r.anunciadas}  [${r.estado}]`,
     )
+    /*
+     * LISTINGS DEPOIS DAS VENDAS, E ISOLADOS DELAS.
+     *
+     * A fonte dos listings é uma GraphQL não documentada da Sky Mavis (ver
+     * `lib/listings.js`); no dia em que ela mudar, esta passada começa a lançar
+     * — e o que não pode acontecer é isso calar o anúncio de vendas. Por isso ela
+     * vem depois do ciclo, no próprio try/catch, e NÃO mexe no `exitCode`: o
+     * vermelho do processo continua significando "as vendas falharam".
+     *
+     * Só imprime quando há o que dizer. Uma linha por volta já existe; dobrar o
+     * log pra repetir "nada novo" enterraria justamente a volta em que algo
+     * aconteceu.
+     */
+    if (listings) {
+      try {
+        const l = await listings({ webhook: webhookListings, seco })
+        if (l.semeados !== undefined) {
+          console.log(`${marca}  listings: primeira passada, ${l.semeados} ativo(s) registrados sem postar`)
+        } else if (l.semearia !== undefined) {
+          console.log(`${marca}  listings: [seco] a primeira passada registraria ${l.semearia} ativo(s) sem postar`)
+        } else if (l.novos) {
+          console.log(`${marca}  listings: ${l.novos} novo(s), ${l.anunciados ?? 0} no canal`)
+        }
+      } catch (e) {
+        console.warn(`[listings] passada falhou: ${e.message}`)
+      }
+    }
     if (Date.now() >= ate) break
     await new Promise((f) => setTimeout(f, intervalo))
   } while (Date.now() < ate)

@@ -40,6 +40,12 @@ Prova só o decodificador de ordem, isolado — inclusive corrompendo um log de 
 Se alguma marketplace mudar o jeito de liquidar, é aqui que aparece primeiro.
 
 ```bash
+node teste_listings.js
+```
+
+Prova o canal de listings: a mensagem, os lotes de até 10 por mensagem, a primeira passada que registra sem postar, e o que acontece quando o Discord recusa ou o Redis cai. A última seção pergunta à GraphQL da Ronin Market de verdade — ela não é API documentada, e se mudar de formato é aqui que aparece.
+
+```bash
 node rodar.js --seco
 ```
 
@@ -68,11 +74,27 @@ Sem elas o bot cai num arquivo local. Isso serve pra testar na sua máquina e **
 
 ### 3. Onde ele roda
 
-**GitHub Actions — grátis, e é o que eu recomendo.** Já está pronto em `.github/workflows/vendas.yml`, de 5 em 5 minutos. Suba o repositório e cadastre em *Settings → Secrets and variables → Actions*: `DISCORD_WEBHOOK`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`.
+Em três lugares, cada um com um papel. Os dois que anunciam (VPS e Vercel) usam o mesmo Redis, com trava, então um não anuncia o que o outro já anunciou.
 
-**Vercel — só no plano Pro.** O `vercel.json` pede uma passada por minuto, e [o plano Hobby só aceita cron diário](https://vercel.com/docs/cron-jobs/usage-and-pricing): o deploy **falha** com `Hobby accounts are limited to daily cron jobs`. No Pro, publique e cadastre as mesmas variáveis mais `CRON_SECRET` (que protege a rota de quem descobrir a URL).
+**VPS, o laço principal (desde 05/09/2026).** Serviço systemd `ronke-vendas` em `/opt/ronke-vendas-bot`, rodando `node --env-file=.env rodar.js` com `MINUTOS=1440` e `INTERVALO_S=60`: uma volta por minuto, reinício diário, `Restart=always`. Saiu do GitHub Actions porque o cron de lá entregava uma execução a cada 2–3 h em vez de a cada 15 min. **A cópia do VPS não é um clone git**: atualizar é copiar os arquivos que mudaram e `systemctl restart ronke-vendas`.
 
-De 5 em 5 minutos é de sobra: esta coleção passou 13 horas sem uma única transferência.
+**Webhook da Alchemy → Vercel (`api/vendas.js`).** A cada transferência do contrato a Alchemy chama a rota em segundos, assinada com HMAC. É o que faz a venda sair na hora; o laço do VPS é a rede por baixo.
+
+**GitHub Actions.** O `vendas.yml` está **desligado** — ligado junto com o VPS, os dois disputariam as mesmas voltas. O `vigia.yml` continua ativo e mede o resultado: se o ponteiro de blocos ficar mais de 60 min atrás da cadeia, o workflow falha e o GitHub manda e-mail. Pra voltar ao Actions: `gh workflow enable vendas.yml` e parar o serviço no VPS.
+
+### 4. Canal de listings (opcional)
+
+Posta cada listing novo da Ronin Market num canal próprio: imagem, preço, vendedor, quando expira e link pro item.
+
+1. No canal de listings: **Editar canal → Integrações → Webhooks → Novo webhook**.
+2. No `.env` do VPS: `DISCORD_WEBHOOK_LISTINGS=<a URL>` (aceita mais de uma, separadas por vírgula).
+3. `systemctl restart ronke-vendas`. O log diz `[listings] ligado: 1 destino(s)`.
+
+A primeira passada **registra os listings que já estão ativos sem postar nenhum** — sem isso o canal receberia uns 300 de uma vez. Dali em diante sai só o que for listado depois. Rajada do mesmo vendedor vai em mensagens de até 10.
+
+**Listing não passa pela cadeia**, por isso ele não vem do mesmo lugar que as vendas. Medido em 22/09/2026: um vendedor listou três NFTs e mandou uma transação só — o `setApprovalForAll`, que a marketplace pede uma vez. Os listings vêm da GraphQL que o próprio site da Ronin Market usa, que **não é API documentada**. Se a Sky Mavis mudar o formato, o log mostra `[listings] passada falhou` a cada volta e as vendas continuam normais — a passada de listings roda isolada, depois do ciclo de vendas.
+
+Só Ronin Market: listing do OpenSea exige a API deles, com chave.
 
 ## Detalhes que custaram tempo
 
@@ -105,11 +127,14 @@ A fila cobraria caro por esse seguro. Como a chave de dedup é reivindicada **de
 ```
 lib/ronin.js     ler a cadeia e reconhecer venda   (o miolo)
 lib/precos.js    quanto custou CADA item, lido do evento de ordem
-lib/discord.js   montar e postar o anúncio
+lib/discord.js   montar e postar o anúncio (venda e listing)
 lib/estado.js    até que bloco já foi anunciado, e o que já saiu
 lib/ciclo.js     uma passada completa
-rodar.js         gatilho de terminal e do GitHub Actions
-api/vendas.js    gatilho da Vercel
+lib/listings.js  os listings novos da Ronin Market
+rodar.js         o laço do VPS (e do terminal)
+api/vendas.js    gatilho da Vercel, chamado pelo webhook da Alchemy
+vigia.js         grita quando o ponteiro fica pra trás
 teste.js         a prova, contra vendas reais
 teste_precos.js  a prova do decodificador de ordem, sozinho
+teste_listings.js a prova do canal de listings
 ```
