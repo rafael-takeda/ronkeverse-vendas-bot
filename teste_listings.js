@@ -220,6 +220,10 @@ const nova = (extra = {}) =>
     nomeColecao: async () => 'Ronkeverse',
     temEstado: true,
     relogio,
+    // Floor, score e raridade são de outra suíte (teste_mercado.js). Sem este
+    // dublê, a passada perguntaria às APIs de verdade no meio de um teste que
+    // existe pra rodar sem rede.
+    enriquece: async (novos) => novos.map(() => ({})),
     ...extra,
   })
 let passada = nova()
