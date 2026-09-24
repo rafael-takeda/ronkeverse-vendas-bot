@@ -15,6 +15,7 @@ import { montaEmbed, montaEmbedDeListing, variacao } from './lib/discord.js'
 import {
   RONKESTRATEGY,
   compraDoVendedor,
+  cotacaoValida,
   contextoDoCiclo,
   escolheFloor,
   extrasDaVenda,
@@ -103,7 +104,7 @@ console.log('\nNOME DE PERFIL — texto de qualquer um, publicado com a cara do 
   conf(nomeApresentavel('ronke-drop.com') === null, 'domínio: descartado')
   conf(nomeApresentavel('@everyone look') === null, 'menção em massa: descartada')
   conf(nomeApresentavel('𝓓𝓮𝓶𝓮𝓽𝓮𝓻') === 'Demeter', 'letra "estilizada" vira letra comum (NFKC)')
-  conf(nomeApresentavel('abc‮dcba') === 'abcdcba', 'caractere que inverte a direção do texto some')
+  conf(nomeApresentavel('abc\u202Edcba') === 'abcdcba', 'caractere que inverte a direção do texto some')
   conf([...nomeApresentavel('x'.repeat(50))].length === 32 && nomeApresentavel('x'.repeat(50)).endsWith('…'), 'nome enorme: 32 caracteres, com reticências')
   conf(nomeApresentavel(null) === null && nomeApresentavel('   ') === null, 'vazio: null')
   conf(nomeDoEndereco(RONKESTRATEGY, 'qualquer') === 'RonkeStrategy', 'rótulo conhecido vence o perfil')
@@ -135,6 +136,19 @@ console.log('\nRARIDADE E RONKE SCORE — o que a API diz, sem inventar\n')
   conf(s.rank === 2 && s.pontos === 7008, 'o #2 do ranking (vendedor do #6857)')
 }
 
+console.log('\nCOTAÇÃO — só vale se estiver fresca\n')
+{
+  // A resposta real do CoinGecko em 24/09, e a regra que pegaria o defeito
+  // que aconteceu: a cotação da Ronin Market estava PARADA em 0,91.
+  const agora = 1790224800
+  const fresca = { ronin: { usd: 0.058037, last_updated_at: 1790224750 } }
+  conf(cotacaoValida(fresca, agora) === 0.058037, 'cotação de 50 s atrás: vale')
+  conf(cotacaoValida({ ronin: { usd: 0.91, last_updated_at: agora - 2 * 3600 } }, agora) === null, 'cotação parada há 2 h: recusada (o dólar não sai)')
+  conf(cotacaoValida({ ronin: { usd: 0.91 } }, agora) === null, 'cotação sem hora: recusada -- sem hora não dá pra saber se está parada')
+  conf(cotacaoValida({ ronin: { usd: 0, last_updated_at: agora } }, agora) === null, 'cotação zero: recusada')
+  conf(cotacaoValida({}, agora) === null && cotacaoValida(null, agora) === null, 'resposta vazia: recusada')
+}
+
 console.log('\nVARIAÇÃO — em milésimos de BigInt\n')
 {
   conf(variacao(650n * RON, 563n * RON) === '+15%', '650 sobre 563: +15%', variacao(650n * RON, 563n * RON))
@@ -160,7 +174,7 @@ console.log('\nA MENSAGEM DE VENDA\n')
   conf(antes.fields[1].value === '`0x871f…7886`', 'SEM extras: comprador idêntico', antes.fields[1].value)
 
   const extra = {
-    usd: 0.91005804,
+    usd: 0.058037, // CoinGecko, 24/09 -- NÃO o 0,91 parado da Ronin Market
     floor: { id: '4345', precoWei: 563n * RON },
     pagou: { precoWei: 530n * RON, quando: 1789787509 },
     nomeComprador: 'marcussanders',
@@ -172,7 +186,7 @@ console.log('\nA MENSAGEM DE VENDA\n')
   const e = montaEmbed(venda, {}, 'Ronkeverse', extra)
   const campo = (n) => e.fields.find((f) => f.name === n)
   conf(e.fields.map((f) => f.name).join(',') === 'Price,Buyer,Seller,Floor,Seller paid,Rarity', 'duas fileiras: quem/quanto, depois o contexto', e.fields.map((f) => f.name).join(','))
-  conf(campo('Price').value === '**650 RON**\n≈ $592', 'preço fiel + dólar arredondado', JSON.stringify(campo('Price').value))
+  conf(campo('Price').value === '**650 RON**\n≈ $37.72', 'preço fiel + dólar com centavos (abaixo de US$ 100)', JSON.stringify(campo('Price').value))
   conf(campo('Buyer').value === 'marcussanders\n`0x871f…7886`\nRonke Score #225', 'comprador: nome, endereço, score', JSON.stringify(campo('Buyer').value))
   conf(campo('Seller').value === '`0xbd93…afb6`\nRonke Score #2', 'vendedor sem nome: endereço e score', JSON.stringify(campo('Seller').value))
   conf(campo('Floor').value === '563 RON (+15%)', 'floor com variação', campo('Floor').value)
@@ -221,7 +235,7 @@ console.log('\nA MENSAGEM DE LISTING\n')
   conf(antes.fields.map((f) => f.name).join(',') === 'Price,Seller,Expires', 'SEM extras: Price · Seller · Expires, como antes')
 
   const extra = {
-    usd: 0.91005804,
+    usd: 0.058037, // CoinGecko, 24/09 -- NÃO o 0,91 parado da Ronin Market
     floor: { id: '4345', precoWei: 563n * RON },
     pagou: { precoWei: 530n * RON, quando: 1789787509 },
     nomeVendedor: null,
@@ -230,6 +244,10 @@ console.log('\nA MENSAGEM DE LISTING\n')
   }
   const e = montaEmbedDeListing(l, 'Ronkeverse', extra)
   conf(e.fields.map((f) => f.name).join(',') === 'Price,Floor,Seller paid,Seller,Rarity,Expires', 'duas fileiras: preço e contexto, depois quem/quão raro/até quando', e.fields.map((f) => f.name).join(','))
+  // O #4820 de 24/09, com a cotação CERTA: foi aqui que o canal publicou
+  // "≈ $427,451" com a cotação parada da Ronin Market.
+  const caro = montaEmbedDeListing({ ...l, precoWei: 4696969n * RON / 10n }, 'Ronkeverse', extra)
+  conf(caro.fields[0].value === '**469,696.9 RON**\n≈ $27,260', 'o #4820: ≈ $27,260 (e não $427,451)', JSON.stringify(caro.fields[0].value))
   conf(e.fields[1].value === '563 RON (+15%)', 'acima do floor: variação', e.fields[1].value)
   const novo = montaEmbedDeListing({ ...l, precoWei: 500n * RON }, 'Ronkeverse', extra)
   conf(novo.fields[1].value === '**New floor**\nprev. 563 RON', 'abaixo do floor: NEW FLOOR, com o floor anterior', JSON.stringify(novo.fields[1].value))
@@ -258,7 +276,10 @@ console.log('\nAS APIS DE VERDADE (Ronin Market e Ronke Score)\n')
 {
   const ctx = await contextoDoCiclo([{ id: '999999' }])
   conf(ctx.floor && ctx.floor.precoWei > 0n, 'floor de verdade', ctx.floor ? `${ctx.floor.precoWei / RON} RON (#${ctx.floor.id})` : 'nulo')
-  conf(ctx.usd > 0 && ctx.usd < 100, 'cotação do RON de verdade', String(ctx.usd))
+  conf(ctx.usd > 0 && ctx.usd < 100, 'cotação do RON de verdade (CoinGecko, fresca)', String(ctx.usd))
+  // Trava de regressão: 0.91005804 era o valor PARADO da Ronin Market em 24/09.
+  // Se ele voltar a aparecer aqui, alguém religou a fonte errada.
+  conf(ctx.usd !== 0.91005804, 'a cotação NÃO é a parada da Ronin Market')
   conf(ctx.colecao && ctx.colecao.holders > 0, 'números da coleção de verdade', ctx.colecao ? `${ctx.colecao.holders} holders, ${Math.round(ctx.colecao.volume7d)} RON em 7d` : 'nulo')
 
   // O .ron vem do /wallet (o /score devolve name null -- ver `nomesRon`). O
