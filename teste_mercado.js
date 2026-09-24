@@ -185,16 +185,13 @@ console.log('\nA MENSAGEM DE VENDA\n')
   }
   const e = montaEmbed(venda, {}, 'Ronkeverse', extra)
   const campo = (n) => e.fields.find((f) => f.name === n)
-  conf(e.fields.map((f) => f.name).join(',') === 'Price,Buyer,Seller,Floor,Seller paid,Rarity', 'duas fileiras: quem/quanto, depois o contexto', e.fields.map((f) => f.name).join(','))
+  conf(e.fields.map((f) => f.name).join(',') === 'Price,Buyer,Seller,Seller paid', 'corpo: quem e quanto; floor e rank foram pro rodapé', e.fields.map((f) => f.name).join(','))
   conf(campo('Price').value === '**650 RON**\n≈ $37.72', 'preço fiel + dólar com centavos (abaixo de US$ 100)', JSON.stringify(campo('Price').value))
   conf(campo('Buyer').value === 'marcussanders\n`0x871f…7886`\nRonke Score #225', 'comprador: nome, endereço, score', JSON.stringify(campo('Buyer').value))
   conf(campo('Seller').value === '`0xbd93…afb6`\nRonke Score #2', 'vendedor sem nome: endereço e score', JSON.stringify(campo('Seller').value))
-  conf(campo('Floor').value === '563 RON (+15%)', 'floor com variação', campo('Floor').value)
   conf(campo('Seller paid').value === '530 RON (+23%)\n<t:1789787509:R>', 'quanto pagou, lucro e quando', JSON.stringify(campo('Seller paid').value))
-  conf(campo('Rarity').value === 'Rank #4,722\nRonin Helmet · 0.76%', 'raridade oficial', JSON.stringify(campo('Rarity').value))
-
-  const noFloor = montaEmbed({ ...venda, precoWei: 563n * RON }, {}, 'Ronkeverse', extra)
-  conf(noFloor.fields.find((f) => f.name === 'Floor').value === '563 RON (at floor)', 'venda no floor: "at floor", não "+0%"')
+  conf(e.footer.text === 'Ronin · Ronin Market · FP: 563 RON · Rank: #4722', 'rodapé: FP e Rank lado a lado, no lugar da hora', e.footer.text)
+  conf(e.timestamp === undefined, 'venda sem hora no embed (o Discord mostra a da mensagem)')
 
   const golpe = montaEmbed(venda, {}, 'Ronkeverse', { nomeComprador: 'a_b*c [x](y)' })
   conf(golpe.fields[1].value.startsWith('a\\_b\\*c \\[x\\]\\(y\\)'), 'marcação no nome é escapada: vira texto, nunca link', JSON.stringify(golpe.fields[1].value))
@@ -203,7 +200,7 @@ console.log('\nA MENSAGEM DE VENDA\n')
   conf(lote.fields[lote.fields.length - 1].name === 'Batch', 'varrida: a linha Batch continua a última')
 
   const semPreco = montaEmbed({ ...venda, precoWei: null }, {}, 'Ronkeverse', extra)
-  conf(!semPreco.fields.some((f) => f.name === 'Floor') && !semPreco.fields[0].value.includes('$'), 'venda sem preço: sem floor e sem dólar (nada pra comparar)')
+  conf(!semPreco.fields[0].value.includes('$') && !semPreco.fields.some((f) => f.name === 'Seller paid' && f.value.includes('%')), 'venda sem preço: sem dólar e sem porcentagem (nada pra comparar)')
 
   // Venda do RonkeStrategy: sem vendedor no recibo (guarda de custódia), mas o
   // `mercado.js` devolve o protocolo como vendedor efetivo.
@@ -214,14 +211,12 @@ console.log('\nA MENSAGEM DE VENDA\n')
   conf(comX.fields[2].value === 'RonkeStrategy\n`0x16bb…df19`', 'RonkeStrategy COM extras: o protocolo como vendedor', JSON.stringify(comX.fields[2].value))
   conf(comX.footer.text === 'Ronin · RonkeStrategy', 'rodapé: RonkeStrategy', comX.footer.text)
 
-  const comNumeros = montaEmbed(venda, {}, 'Ronkeverse', { colecao: { holders: 1850, volume7d: 20564.91517709862 } })
-  conf(
-    comNumeros.footer.text === 'Ronin · Ronin Market · 1,850 holders · 20,565 RON 7d volume',
-    'rodapé com os números da coleção',
-    comNumeros.footer.text,
-  )
-  const soHolders = montaEmbed(venda, {}, 'Ronkeverse', { colecao: { holders: 1850, volume7d: null } })
-  conf(soHolders.footer.text === 'Ronin · Ronin Market · 1,850 holders', 'sem volume: só holders, sem "null"', soHolders.footer.text)
+  // O volume de 7 dias da API foi medido 4,5× abaixo do real (ver
+  // `numerosDaColecao`): mesmo que ele apareça nos dados, o rodapé não o usa.
+  const comVolume = montaEmbed(venda, {}, 'Ronkeverse', { colecao: { holders: 1850, volume7d: 20564.91517709862 } })
+  conf(comVolume.footer.text === 'Ronin · Ronin Market · 1,850 holders', 'holders sai; o volume errado da API, não', comVolume.footer.text)
+  const tudo = montaEmbed(venda, {}, 'Ronkeverse', { ...extra, colecao: { holders: 1850 } })
+  conf(tudo.footer.text === 'Ronin · Ronin Market · 1,850 holders · FP: 563 RON · Rank: #4722', 'rodapé completo: FP e Rank por último, onde ficava a hora', tudo.footer.text)
   conf(antes.footer.text === 'Ronin · Ronin Market', 'SEM extras: rodapé de antes', antes.footer.text)
 }
 
@@ -243,28 +238,25 @@ console.log('\nA MENSAGEM DE LISTING\n')
     raridade: { rank: 4722, tier: 'standard', traco: { tipo: 'Hair - Headwear', valor: 'Ronin Helmet', prob: 0.0076 } },
   }
   const e = montaEmbedDeListing(l, 'Ronkeverse', extra)
-  conf(e.fields.map((f) => f.name).join(',') === 'Price,Floor,Seller paid,Seller,Rarity,Expires', 'duas fileiras: preço e contexto, depois quem/quão raro/até quando', e.fields.map((f) => f.name).join(','))
+  conf(e.fields.map((f) => f.name).join(',') === 'Price,Seller,Expires,Seller paid', 'primeira fileira de sempre, "Seller paid" embaixo', e.fields.map((f) => f.name).join(','))
+  conf(e.footer.text === 'Ronin · Ronin Market · FP: 563 RON · Rank: #4722', 'rodapé: FP e Rank lado a lado', e.footer.text)
+  conf(e.timestamp === undefined, 'SEM a hora em que o listing nasceu (decisão de 24/09)', String(e.timestamp))
   // O #4820 de 24/09, com a cotação CERTA: foi aqui que o canal publicou
   // "≈ $427,451" com a cotação parada da Ronin Market.
   const caro = montaEmbedDeListing({ ...l, precoWei: 4696969n * RON / 10n }, 'Ronkeverse', extra)
   conf(caro.fields[0].value === '**469,696.9 RON**\n≈ $27,260', 'o #4820: ≈ $27,260 (e não $427,451)', JSON.stringify(caro.fields[0].value))
-  conf(e.fields[1].value === '563 RON (+15%)', 'acima do floor: variação', e.fields[1].value)
+  // Listing mais barato que todos: o FP do rodapé é o floor SEM ele, então o
+  // leitor vê 500 contra FP 563 -- o "novo floor" sem precisar de campo.
   const novo = montaEmbedDeListing({ ...l, precoWei: 500n * RON }, 'Ronkeverse', extra)
-  conf(novo.fields[1].value === '**New floor**\nprev. 563 RON', 'abaixo do floor: NEW FLOOR, com o floor anterior', JSON.stringify(novo.fields[1].value))
-  const igual = montaEmbedDeListing({ ...l, precoWei: 563n * RON }, 'Ronkeverse', extra)
-  conf(igual.fields[1].value === '563 RON (at floor)', 'no floor: "at floor"')
-  const um = montaEmbedDeListing(l, 'Ronkeverse', { raridade: { rank: null, tier: 'community_1of1', traco: null } })
-  conf(um.fields.find((f) => f.name === 'Rarity').value === '1/1 · community', '1/1 da comunidade: o tier, sem rank')
-  const oficial = montaEmbedDeListing(l, 'Ronkeverse', {
-    raridade: { rank: null, tier: 'official_1of1', traco: { tipo: 'Type', valor: '1/1', prob: 0.0075 } },
-  })
-  conf(oficial.fields.find((f) => f.name === 'Rarity').value === '1/1 · official', '1/1 oficial (o #4820): só o tier, sem repetir "1/1 · 0.75%"', JSON.stringify(oficial.fields.find((f) => f.name === 'Rarity').value))
-  const novoTier = montaEmbedDeListing(l, 'Ronkeverse', { raridade: { rank: null, tier: 'legendary_1of1', traco: null } })
-  conf(novoTier.fields.find((f) => f.name === 'Rarity').value === '1/1', 'tier de 1/1 que a API inventar depois: "1/1", sem chute')
+  conf(novo.fields[0].value.startsWith('**500 RON**') && novo.footer.text.includes('FP: 563 RON'), 'abaixo do floor: preço 500 contra FP 563')
+  const rodapeDe = (raridade) => montaEmbedDeListing(l, 'Ronkeverse', { raridade }).footer.text
+  conf(rodapeDe({ rank: null, tier: 'community_1of1', traco: null }) === 'Ronin · Ronin Market · Rank: 1/1 community', '1/1 da comunidade: o tier, sem rank inventado')
+  conf(rodapeDe({ rank: null, tier: 'official_1of1', traco: null }) === 'Ronin · Ronin Market · Rank: 1/1 official', '1/1 oficial (o #4820)')
+  conf(rodapeDe({ rank: null, tier: 'legendary_1of1', traco: null }) === 'Ronin · Ronin Market · Rank: 1/1', 'tier de 1/1 que a API inventar depois: "1/1", sem chute')
   const estranha = montaEmbedDeListing({ ...l, moeda: null }, 'Ronkeverse', extra)
-  conf(!estranha.fields.some((f) => f.name === 'Floor') && !estranha.fields[0].value.includes('$'), 'moeda desconhecida: sem floor e sem dólar')
-  const comNumeros = montaEmbedDeListing(l, 'Ronkeverse', { colecao: { holders: 1850, volume7d: 20564.9 } })
-  conf(comNumeros.footer.text === 'Ronin · Ronin Market · 1,850 holders · 20,565 RON 7d volume', 'listing: rodapé com os números', comNumeros.footer.text)
+  conf(!estranha.fields[0].value.includes('$'), 'moeda desconhecida: sem dólar')
+  const comNumeros = montaEmbedDeListing(l, 'Ronkeverse', { ...extra, colecao: { holders: 1850 } })
+  conf(comNumeros.footer.text === 'Ronin · Ronin Market · 1,850 holders · FP: 563 RON · Rank: #4722', 'listing: rodapé completo', comNumeros.footer.text)
   conf(antes.footer.text === 'Ronin · Ronin Market', 'listing SEM extras: rodapé de antes')
 }
 
@@ -280,7 +272,8 @@ console.log('\nAS APIS DE VERDADE (Ronin Market e Ronke Score)\n')
   // Trava de regressão: 0.91005804 era o valor PARADO da Ronin Market em 24/09.
   // Se ele voltar a aparecer aqui, alguém religou a fonte errada.
   conf(ctx.usd !== 0.91005804, 'a cotação NÃO é a parada da Ronin Market')
-  conf(ctx.colecao && ctx.colecao.holders > 0, 'números da coleção de verdade', ctx.colecao ? `${ctx.colecao.holders} holders, ${Math.round(ctx.colecao.volume7d)} RON em 7d` : 'nulo')
+  conf(ctx.colecao && ctx.colecao.holders > 1000 && ctx.colecao.holders < 6970, 'holders de verdade (entre mil e o total de tokens)', ctx.colecao ? `${ctx.colecao.holders} holders` : 'nulo')
+  conf(ctx.colecao && ctx.colecao.volume7d === undefined, 'o volume de 7 dias da API não entra nos dados')
 
   // O .ron vem do /wallet (o /score devolve name null -- ver `nomesRon`). O
   // leaderboard diz quem TEM nome; o /wallet tem que devolver o mesmo.

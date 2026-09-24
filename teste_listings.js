@@ -71,7 +71,9 @@ conf(e0.fields[1].value === '`0x871f…7886`', 'vendedor curto', e0.fields[1].va
 conf(e0.fields[2].value === '<t:1792715880:R>', 'expiração no fuso de quem lê', e0.fields[2].value)
 conf(e0.image?.url === CRU.image, 'imagem grande, como no canal de vendas')
 conf(e0.footer.text === 'Ronin · Ronin Market', 'rodapé', e0.footer.text)
-conf(e0.timestamp === '2026-09-23T00:38:00.000Z', 'hora em que o listing nasceu, não a do post', e0.timestamp)
+// Até 24/09 o embed levava a hora em que o listing nasceu. O dono tirou: o
+// Discord já mostra a hora da mensagem, e o rodapé ficou com floor e rank.
+conf(e0.timestamp === undefined, 'sem hora no embed: o Discord já mostra a da mensagem', String(e0.timestamp))
 const preco = (wei) => montaEmbedDeListing({ ...l0, precoWei: wei }, 'Ronkeverse').fields[0].value
 conf(preco(46969n * RON / 100n) === '**469.69 RON**', 'fiel até o centavo: 469,69 não vira 470', preco(46969n * RON / 100n))
 conf(preco(269676n * RON / 1000n) === '**269.676 RON**', 'fiel além do centavo', preco(269676n * RON / 1000n))
