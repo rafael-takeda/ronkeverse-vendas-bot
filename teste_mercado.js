@@ -27,6 +27,7 @@ import {
   resumoDeScore,
 } from './lib/mercado.js'
 import { ultimosListings } from './lib/listings.js'
+import { cobreASemana, somaDeVolume } from './lib/estado.js'
 
 let falhas = 0
 const conf = (cond, msg, extra = '') => {
@@ -149,6 +150,21 @@ console.log('\nCOTAÇÃO — só vale se estiver fresca\n')
   conf(cotacaoValida({}, agora) === null && cotacaoValida(null, agora) === null, 'resposta vazia: recusada')
 }
 
+console.log('\nVOLUME DA SEMANA — somado das vendas que o bot detecta\n')
+{
+  // Membros do sorted set: tx|id|preço em wei. As duas vendas reais de 24/09.
+  const membros = [`0xd2c4|4345|${5148n * RON / 10n}`, `0x066a|6842|${480n * RON}`]
+  conf(somaDeVolume(membros) === 5148n * RON / 10n + 480n * RON, 'soma exata em wei (514,8 + 480)', String(somaDeVolume(membros) / 10n ** 15n) + ' mRON')
+  conf(somaDeVolume(['lixo', '0xc|3|abc', null, '0xd|4']) === 0n, 'membro torto não soma nada (nem quebra)')
+  conf(somaDeVolume([]) === 0n && somaDeVolume(null) === 0n, 'set vazio: zero')
+  const agora = 1790224800
+  const DIA = 86400
+  conf(cobreASemana(agora - 8 * DIA, agora) === true, 'cobertura de 8 dias: vale')
+  conf(cobreASemana(agora - 7 * DIA, agora) === true, 'exatamente 7 dias: vale')
+  conf(cobreASemana(agora - 6 * DIA, agora) === false, 'só 6 dias anotados: NÃO vale (número parcial não sai)')
+  conf(cobreASemana(null, agora) === false && cobreASemana('lixo', agora) === false, 'sem marca de cobertura: não vale')
+}
+
 console.log('\nVARIAÇÃO — em milésimos de BigInt\n')
 {
   conf(variacao(650n * RON, 563n * RON) === '+15%', '650 sobre 563: +15%', variacao(650n * RON, 563n * RON))
@@ -215,6 +231,14 @@ console.log('\nA MENSAGEM DE VENDA\n')
   // `numerosDaColecao`): mesmo que ele apareça nos dados, o rodapé não o usa.
   const comVolume = montaEmbed(venda, {}, 'Ronkeverse', { colecao: { holders: 1850, volume7d: 20564.91517709862 } })
   conf(comVolume.footer.text === 'Ronin · Ronin Market · 1,850 holders', 'holders sai; o volume errado da API, não', comVolume.footer.text)
+  const comVolumeNosso = montaEmbed(venda, {}, 'Ronkeverse', { ...extra, colecao: { holders: 1850, volume7dWei: 93399n * RON } })
+  conf(
+    comVolumeNosso.footer.text === 'Ronin · Ronin Market · 1,850 holders · 93,399 RON 7d volume · FP: 563 RON · Rank: #4722',
+    'rodapé com o volume SOMADO PELO BOT',
+    comVolumeNosso.footer.text,
+  )
+  const volumeZero = montaEmbed(venda, {}, 'Ronkeverse', { colecao: { holders: 1850, volume7dWei: 0n } })
+  conf(volumeZero.footer.text === 'Ronin · Ronin Market · 1,850 holders', 'volume zero não sai ("0 RON 7d volume" seria mentira de semana vazia)', volumeZero.footer.text)
   const tudo = montaEmbed(venda, {}, 'Ronkeverse', { ...extra, colecao: { holders: 1850 } })
   conf(tudo.footer.text === 'Ronin · Ronin Market · 1,850 holders · FP: 563 RON · Rank: #4722', 'rodapé completo: FP e Rank por último, onde ficava a hora', tudo.footer.text)
   conf(antes.footer.text === 'Ronin · Ronin Market', 'SEM extras: rodapé de antes', antes.footer.text)
