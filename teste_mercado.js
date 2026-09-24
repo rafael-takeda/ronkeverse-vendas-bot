@@ -19,6 +19,7 @@ import {
   escolheFloor,
   extrasDaVenda,
   extrasDosListings,
+  nomesRon,
   nomeApresentavel,
   nomeDoEndereco,
   resumoDeRaridade,
@@ -107,6 +108,11 @@ console.log('\nNOME DE PERFIL — texto de qualquer um, publicado com a cara do 
   conf(nomeApresentavel(null) === null && nomeApresentavel('   ') === null, 'vazio: null')
   conf(nomeDoEndereco(RONKESTRATEGY, 'qualquer') === 'RonkeStrategy', 'rótulo conhecido vence o perfil')
   conf(nomeDoEndereco(MARCUS, 'marcussanders') === 'marcussanders', 'sem rótulo, vale o perfil')
+  conf(nomeDoEndereco(MARCUS, 'marcussanders', 'marcus.ron') === 'marcussanders', 'nome da marketplace vence o .ron')
+  conf(nomeDoEndereco(MARCUS, null, 'marcus.ron') === 'marcus.ron', 'sem perfil: vale o .ron')
+  conf(nomeDoEndereco(MARCUS, 'Lunacian #24', 'marcus.ron') === 'marcus.ron', 'perfil com nome padrão: vale o .ron')
+  conf(nomeDoEndereco(RONKESTRATEGY, null, 'outro.ron') === 'RonkeStrategy', 'rótulo vence até o .ron')
+  conf(nomeDoEndereco(MARCUS, null, 'https://golpe.xyz') === null, 'o .ron passa pelo mesmo filtro')
 }
 
 console.log('\nRARIDADE E RONKE SCORE — o que a API diz, sem inventar\n')
@@ -193,6 +199,16 @@ console.log('\nA MENSAGEM DE VENDA\n')
   const comX = montaEmbed(prot, {}, 'Ronkeverse', { vendedorEfetivo: RONKESTRATEGY, nomeVendedor: 'RonkeStrategy' })
   conf(comX.fields[2].value === 'RonkeStrategy\n`0x16bb…df19`', 'RonkeStrategy COM extras: o protocolo como vendedor', JSON.stringify(comX.fields[2].value))
   conf(comX.footer.text === 'Ronin · RonkeStrategy', 'rodapé: RonkeStrategy', comX.footer.text)
+
+  const comNumeros = montaEmbed(venda, {}, 'Ronkeverse', { colecao: { holders: 1850, volume7d: 20564.91517709862 } })
+  conf(
+    comNumeros.footer.text === 'Ronin · Ronin Market · 1,850 holders · 20,565 RON 7d volume',
+    'rodapé com os números da coleção',
+    comNumeros.footer.text,
+  )
+  const soHolders = montaEmbed(venda, {}, 'Ronkeverse', { colecao: { holders: 1850, volume7d: null } })
+  conf(soHolders.footer.text === 'Ronin · Ronin Market · 1,850 holders', 'sem volume: só holders, sem "null"', soHolders.footer.text)
+  conf(antes.footer.text === 'Ronin · Ronin Market', 'SEM extras: rodapé de antes', antes.footer.text)
 }
 
 console.log('\nA MENSAGEM DE LISTING\n')
@@ -229,6 +245,9 @@ console.log('\nA MENSAGEM DE LISTING\n')
   conf(novoTier.fields.find((f) => f.name === 'Rarity').value === '1/1', 'tier de 1/1 que a API inventar depois: "1/1", sem chute')
   const estranha = montaEmbedDeListing({ ...l, moeda: null }, 'Ronkeverse', extra)
   conf(!estranha.fields.some((f) => f.name === 'Floor') && !estranha.fields[0].value.includes('$'), 'moeda desconhecida: sem floor e sem dólar')
+  const comNumeros = montaEmbedDeListing(l, 'Ronkeverse', { colecao: { holders: 1850, volume7d: 20564.9 } })
+  conf(comNumeros.footer.text === 'Ronin · Ronin Market · 1,850 holders · 20,565 RON 7d volume', 'listing: rodapé com os números', comNumeros.footer.text)
+  conf(antes.footer.text === 'Ronin · Ronin Market', 'listing SEM extras: rodapé de antes')
 }
 
 /* ============================================================================
@@ -240,6 +259,16 @@ console.log('\nAS APIS DE VERDADE (Ronin Market e Ronke Score)\n')
   const ctx = await contextoDoCiclo([{ id: '999999' }])
   conf(ctx.floor && ctx.floor.precoWei > 0n, 'floor de verdade', ctx.floor ? `${ctx.floor.precoWei / RON} RON (#${ctx.floor.id})` : 'nulo')
   conf(ctx.usd > 0 && ctx.usd < 100, 'cotação do RON de verdade', String(ctx.usd))
+  conf(ctx.colecao && ctx.colecao.holders > 0, 'números da coleção de verdade', ctx.colecao ? `${ctx.colecao.holders} holders, ${Math.round(ctx.colecao.volume7d)} RON em 7d` : 'nulo')
+
+  // O .ron vem do /wallet (o /score devolve name null -- ver `nomesRon`). O
+  // leaderboard diz quem TEM nome; o /wallet tem que devolver o mesmo.
+  const lb = await (await fetch('https://ronke-analytics.vercel.app/api/v1/leaderboard?limit=50')).json()
+  const comNome = lb.data.entries.find((e) => e.name)
+  if (comNome) {
+    const ron = await nomesRon([comNome.address])
+    conf(ron.get(comNome.address.toLowerCase()) === comNome.name, 'o .ron do /wallet bate com o do leaderboard', `${comNome.name} (#${comNome.rank})`)
+  } else conf(false, 'o leaderboard deveria ter alguém com .ron')
 
   // #5314: raridade é estável (não muda com venda), então dá pra conferir o
   // valor; score e dono mudam, então só a FORMA.
