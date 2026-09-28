@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Anuncia no Discord cada venda do Ronkeverse na Ronin.",
   "scripts": {
-    "teste": "node teste.js && node teste_listings.js && node teste_mercado.js",
+    "teste": "node teste.js && node teste_listings.js && node teste_mercado.js && node --env-file-if-exists=.env teste_opensea.js",
     "rodar": "node rodar.js",
     "checar": "node --env-file=.env checar.js"
   },

@@ -20,6 +20,7 @@ import {
   escolheFloor,
   extrasDaVenda,
   extrasDosListings,
+  menorFloor,
   nomesRon,
   nomeApresentavel,
   nomeDoEndereco,
@@ -61,6 +62,14 @@ console.log('\nFLOOR — o mais barato em RON que não é o próprio item\n')
   const outra = [{ tokenId: '1', order: { currentPrice: '5', paymentToken: '0x' + '1'.repeat(40) } }, ...res]
   conf(escolheFloor(outra).id === '4345', 'ordem em outra moeda é pulada: preço de moedas diferentes não se compara')
   conf(escolheFloor([]) === null && escolheFloor(null) === null, 'sem listing: null, nada inventado')
+
+  // O FP é o menor das duas marketplaces (Ronin Market e OpenSea).
+  const rm = { id: '4345', precoWei: 563n * RON }
+  const os = { id: '5047', precoWei: 650n * RON }
+  conf(menorFloor(rm, os) === rm, 'FP: Ronin Market mais barata vence')
+  conf(menorFloor({ ...rm, precoWei: 700n * RON }, os) === os, 'FP: OpenSea mais barato vence')
+  conf(menorFloor(rm, null) === rm && menorFloor(null, os) === os, 'uma fonte fora: vale a outra')
+  conf(menorFloor(null, null) === null, 'as duas fora: sem FP')
 }
 
 console.log('\nQUANTO O VENDEDOR PAGOU — só se a compra mais recente foi DELE\n')

@@ -27,7 +27,7 @@
 import { umCiclo } from './lib/ciclo.js'
 import { listaDeWebhooks } from './lib/discord.js'
 import { usandoKv } from './lib/estado.js'
-import { criaPassadaDeListings } from './lib/listings.js'
+import { criaPassadaDeListings, criaPassadaDeListingsOpenSea } from './lib/listings.js'
 
 const seco = process.argv.includes('--seco')
 const webhook = process.env.DISCORD_WEBHOOK
@@ -59,6 +59,14 @@ if (!usandoKv && (seco || webhookListings)) {
 } else {
   console.log('[listings] desligado (sem DISCORD_WEBHOOK_LISTINGS)')
 }
+
+/*
+ * OS LISTINGS DO OPENSEA seguem os da Ronin Market: mesmo canal, mesma regra
+ * de Redis. Ligados por padrão — a chave o próprio bot emite (ver opensea.js).
+ * `LISTINGS_OPENSEA=0` desliga sem mexer no resto.
+ */
+const listingsOpenSea = listings && process.env.LISTINGS_OPENSEA !== '0' ? criaPassadaDeListingsOpenSea() : null
+if (listings) console.log(`[listings] OpenSea ${listingsOpenSea ? 'ligado' : 'desligado (LISTINGS_OPENSEA=0)'}`)
 
 if (!seco && !webhook) {
   console.error('Falta DISCORD_WEBHOOK. Use --seco pra testar sem postar.')
@@ -117,20 +125,28 @@ if (!seco && !webhook) {
      * log pra repetir "nada novo" enterraria justamente a volta em que algo
      * aconteceu.
      */
-    if (listings) {
+    const rodaListings = async (passada, rotulo) => {
       try {
-        const l = await listings({ webhook: webhookListings, seco })
+        const l = await passada({ webhook: webhookListings, seco })
         if (l.semeados !== undefined) {
-          console.log(`${marca}  listings: primeira passada -- o canal conta a partir de agora (os ativos de antes ficam de fora)`)
+          console.log(`${marca}  ${rotulo}: primeira passada -- o canal conta a partir de agora (os ativos de antes ficam de fora)`)
         } else if (l.semearia !== undefined) {
-          console.log(`${marca}  listings: [seco] a primeira passada marcaria o inicio do canal agora, sem postar nada`)
-        } else if (l.novos) {
-          console.log(`${marca}  listings: ${l.novos} novo(s), ${l.anunciados ?? 0} no canal`)
+          console.log(`${marca}  ${rotulo}: [seco] a primeira passada marcaria o inicio do canal agora, sem postar nada`)
+        } else {
+          const partes = []
+          if (l.novos) partes.push(`${l.novos} novo(s), ${l.anunciados ?? 0} no canal`)
+          if (l.relistagens) partes.push(`${l.relistagens} relistagem(ns) ignorada(s)`)
+          if (l.inativos) partes.push(`${l.inativos} ja fora do ar`)
+          if (partes.length) console.log(`${marca}  ${rotulo}: ${partes.join(', ')}`)
         }
       } catch (e) {
-        console.warn(`[listings] passada falhou: ${e.message}`)
+        console.warn(`[${rotulo}] passada falhou: ${e.message}`)
       }
     }
+    // Uma depois da outra, cada uma no seu try: o OpenSea fora não cala a
+    // Ronin Market, e nenhuma das duas cala as vendas.
+    if (listings) await rodaListings(listings, 'listings')
+    if (listingsOpenSea) await rodaListings(listingsOpenSea, 'listings opensea')
     if (Date.now() >= ate) break
     await new Promise((f) => setTimeout(f, intervalo))
   } while (Date.now() < ate)
